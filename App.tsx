@@ -8,6 +8,9 @@ import CropDropdownChecklist, {
   type CropSelectionState,
   emptyCropSelection,
   hasAnyCropSelected,
+  getAllowedCropKeys,
+  isSugarcaneOnlyUser,
+  sugarcaneOnlySelection,
 } from './components/CropDropdownChecklist';
 import LayersDropdown from './components/LayersDropdown';
 import LegendCircles, { AnalysisType } from './components/LegendCircles';
@@ -19,7 +22,6 @@ import PredictAreaMapCard from './components/PredictAreaMapCard';
 import SubdistrictVillageWiseCard from './components/SubdistrictVillageWiseCard';
 import TopNavBar from './components/TopNavBar';
 import { LoginPage } from './components/LoginPage';
-import LoginTransitionFlash from './components/LoginTransitionFlash';
 import { 
   fetchDistricts, 
   fetchSubdistricts, 
@@ -49,6 +51,7 @@ import {
   extractPredictCropFieldPlotsFromViz,
   predictAreaPlotId,
   formatPredictAreaMonthLabel,
+  getCurrentPredictAreaMonth,
   type PredictAreaCropData,
   type PredictAreaResponse,
   type FieldBoundaryPlot,
@@ -355,9 +358,6 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<string>('');
 
   /** Only true after login succeeds; never on first paint */
-  const [showLoginFlash, setShowLoginFlash] = useState(false);
-  const loginFlashCompleteRef = useRef<() => void>(() => {});
-  loginFlashCompleteRef.current = () => setShowLoginFlash(false);
 
   // Clear any leftover session so refresh always shows login first
   useEffect(() => {
@@ -2001,7 +2001,7 @@ const App: React.FC = () => {
     const cancelSignal = { cancelled: false };
 
     const loadVillageMapBoundaries = async () => {
-      const villageData = villages.find((v) => v.village === selectedVillage);
+    const villageData = villages.find((v) => v.village === selectedVillage);
       let outlineCoords = villageData ? parseVillageBoundaryCoordinates(villageData) : [];
 
       if (outlineCoords.length < 3) {
@@ -2026,22 +2026,22 @@ const App: React.FC = () => {
       if (!showVillageBoundary) {
         if (cancelled) return;
         if (!outlinePlot) {
-          setAllPlots([]);
+      setAllPlots([]);
           return;
         }
         setAllPlots([outlinePlot]);
         const bounds = L.latLngBounds([]);
         outlinePlot.boundary.forEach((coord: Coordinate) => bounds.extend([coord[1], coord[0]]));
         if (bounds.isValid()) setPlotBounds(bounds);
-        return;
-      }
+      return;
+    }
 
       // Show outline immediately, then append field pages as they arrive.
       if (outlinePlot) {
         setAllPlots([outlinePlot]);
-        const bounds = L.latLngBounds([]);
+      const bounds = L.latLngBounds([]);
         outlinePlot.boundary.forEach((coord: Coordinate) => bounds.extend([coord[1], coord[0]]));
-        if (bounds.isValid()) setPlotBounds(bounds);
+      if (bounds.isValid()) setPlotBounds(bounds);
       }
 
       try {
@@ -2091,7 +2091,9 @@ const App: React.FC = () => {
     splitScreenMode,
   ]);
 
-  // Subdistrict crop areas from /predict-area/crop-areas (cards only; map keeps subdistrict boundary)
+  // Crop areas from /predict-area/crop-areas (cards only)
+  // - Subdistrict selected: village_wise breakdown
+  // - District only (Admin + sugarcane): district totals + subdistrict_wise breakdown
   useEffect(() => {
     if (splitScreenMode) return;
     const emptyTotals = (): Record<CropSelectionKey, number | null> => ({
@@ -2101,7 +2103,11 @@ const App: React.FC = () => {
       Mango: null,
       Banana: null,
     });
-    if (!selectedDistrict || !selectedSubdistrict) {
+    const sugarcaneOnly = isSugarcaneOnlyUser(currentUser);
+    const canFetchSubdistrict = !!(selectedDistrict && selectedSubdistrict);
+    const canFetchDistrictOnly = !!(selectedDistrict && !selectedSubdistrict);
+
+    if (!canFetchSubdistrict && !canFetchDistrictOnly) {
       setSubdistrictCropAreas(null);
       setSubdistrictCropTotals(emptyTotals());
       setSubdistrictVillageWiseRows([]);
@@ -2118,7 +2124,11 @@ const App: React.FC = () => {
       setSubdistrictCropAreasLoading(false);
       return;
     }
-    const selectedKeys = [...CROP_SELECTION_KEYS];
+    const selectedKeys: CropSelectionKey[] = sugarcaneOnly
+      ? ['sugarcane']
+      : [...CROP_SELECTION_KEYS];
+    const subdistrictArg = canFetchSubdistrict ? selectedSubdistrict : null;
+    const cropNameArg = sugarcaneOnly ? 'sugarcane' : undefined;
 
     let cancelled = false;
     setSubdistrictCropAreasLoading(true);
@@ -2127,25 +2137,35 @@ const App: React.FC = () => {
       try {
         const res = await fetchPredictAreaCropAreas(
           selectedDistrict,
-          selectedSubdistrict,
-          month
+          subdistrictArg,
+          month,
+          cropNameArg
         );
         if (cancelled) return;
 
         const totals = emptyTotals();
         selectedKeys.forEach((key) => {
           const cropName = cropResponseKey(key);
-          const ha = res.totals?.[cropName];
+          const ha =
+            res.totals?.[cropName] ??
+            res.totals?.[key] ??
+            (sugarcaneOnly ? res.totals?.sugarcane : undefined);
           totals[key] = typeof ha === 'number' && !Number.isNaN(ha) ? ha : null;
         });
 
         const villageRows: Array<{ village: string; crop: string; areaHa: number }> = [];
-        Object.entries(res.village_wise || {}).forEach(([villageName, cropHaMap]) => {
+        const breakdown = canFetchSubdistrict
+          ? res.village_wise || {}
+          : res.subdistrict_wise || {};
+
+        Object.entries(breakdown).forEach(([regionName, cropHaMap]) => {
           Object.entries(cropHaMap || {}).forEach(([crop, area]) => {
             if (typeof area !== 'number' || Number.isNaN(area)) return;
-            const wanted = selectedKeys.some((k) => cropResponseKey(k) === crop.toLowerCase());
+            const wanted = selectedKeys.some(
+              (k) => cropResponseKey(k) === crop.toLowerCase() || k.toLowerCase() === crop.toLowerCase()
+            );
             if (!wanted) return;
-            villageRows.push({ village: villageName, crop, areaHa: area });
+            villageRows.push({ village: regionName, crop, areaHa: area });
           });
         });
 
@@ -2174,6 +2194,7 @@ const App: React.FC = () => {
     selectedSubdistrict,
     predictAreaMonthInput,
     splitScreenMode,
+    currentUser,
   ]);
 
   // When crop layer is on, fetch predict-area polygons for village / subdistrict / district
@@ -2223,32 +2244,32 @@ const App: React.FC = () => {
     setPredictCropAreaLoading(true);
 
     const emptyAreas = (): Record<CropSelectionKey, number | null> => ({
-      sugarcane: null,
-      wheat: null,
-      Soyabean: null,
-      Mango: null,
-      Banana: null,
+          sugarcane: null,
+          wheat: null,
+          Soyabean: null,
+          Mango: null,
+          Banana: null,
     });
 
     const layersFromPayload = (res: PredictAreaResponse) => {
       const next: Partial<Record<CropSelectionKey, PredictCropLayer>> = {};
       const areas = emptyAreas();
-      CROP_SELECTION_KEYS.forEach((key) => {
-        const layer = parsePredictCropLayer(
-          res[cropResponseKey(key)] as PredictAreaCropData | undefined,
-          CROP_DEFAULT_COLORS[key]
-        );
-        if (layer) {
-          next[key] = layer;
-          areas[key] = layer.totalHa;
+        CROP_SELECTION_KEYS.forEach((key) => {
+          const layer = parsePredictCropLayer(
+            res[cropResponseKey(key)] as PredictAreaCropData | undefined,
+            CROP_DEFAULT_COLORS[key]
+          );
+          if (layer) {
+            next[key] = layer;
+            areas[key] = layer.totalHa;
+          }
+        });
+        if (areas.sugarcane == null && typeof res.sugarcane_area_ha === 'number' && !Number.isNaN(res.sugarcane_area_ha)) {
+          areas.sugarcane = res.sugarcane_area_ha;
+          if (next.sugarcane) {
+            next.sugarcane = { ...next.sugarcane, totalHa: res.sugarcane_area_ha };
+          }
         }
-      });
-      if (areas.sugarcane == null && typeof res.sugarcane_area_ha === 'number' && !Number.isNaN(res.sugarcane_area_ha)) {
-        areas.sugarcane = res.sugarcane_area_ha;
-        if (next.sugarcane) {
-          next.sugarcane = { ...next.sugarcane, totalHa: res.sugarcane_area_ha };
-        }
-      }
       return { next, areas };
     };
 
@@ -2569,19 +2590,24 @@ const App: React.FC = () => {
   }, []);
 
   const toggleSelectedCrop = useCallback((crop: CropSelectionKey) => {
+    if (isSugarcaneOnlyUser(currentUser) && crop !== 'sugarcane') return;
     setSelectedCrops((prev) => ({ ...prev, [crop]: !prev[crop] }));
-  }, []);
+  }, [currentUser]);
 
   const toggleAllCrops = useCallback(() => {
     setSelectedCrops((prev) => {
-      const allOn = CROP_SELECTION_KEYS.every((key) => prev[key]);
+      const keys = isSugarcaneOnlyUser(currentUser) ? (['sugarcane'] as CropSelectionKey[]) : [...CROP_SELECTION_KEYS];
+      const allOn = keys.every((key) => prev[key]);
       const next = emptyCropSelection();
-      CROP_SELECTION_KEYS.forEach((key) => {
+      // Keep non-allowed crops off for sugarcane-only users
+      keys.forEach((key) => {
         next[key] = !allOn;
       });
       return next;
     });
-  }, []);
+  }, [currentUser]);
+
+  const allowedCropKeys = useMemo(() => getAllowedCropKeys(currentUser), [currentUser]);
 
   const predictAreaMapCard = useMemo(() => {
     if (!/^\d{4}-\d{2}$/.test(predictAreaMonthInput.trim())) return null;
@@ -2598,14 +2624,14 @@ const App: React.FC = () => {
 
     // Village card (crop layer on)
     if (showCropLayer && villageInScope) {
-      return {
-        loading: predictCropAreaLoading,
+    return {
+      loading: predictCropAreaLoading,
         regionLabel: (splitScreenMode ? leftSelectedVillage : selectedVillage) || '',
-        cropAreas: predictCropAreas,
-        cropColors,
-        selectedCrops,
-        onToggleCrop: toggleSelectedCrop,
-      };
+      cropAreas: predictCropAreas,
+      cropColors,
+      selectedCrops,
+      onToggleCrop: toggleSelectedCrop,
+    };
     }
 
     // Same card for subdistrict (no village) — totals from /predict-area/crop-areas
@@ -2619,6 +2645,24 @@ const App: React.FC = () => {
       return {
         loading: subdistrictCropAreasLoading,
         regionLabel: selectedSubdistrict,
+        cropAreas: subdistrictCropTotals,
+        cropColors,
+        selectedCrops,
+        onToggleCrop: toggleSelectedCrop,
+      };
+    }
+
+    // District-only totals from /predict-area/crop-areas?district=&month= (Admin: all crops; sugarcane login: sugarcane only)
+    if (
+      !splitScreenMode &&
+      showSubdistrictCropCard &&
+      selectedDistrict &&
+      !selectedSubdistrict &&
+      !selectedVillage
+    ) {
+      return {
+        loading: subdistrictCropAreasLoading,
+        regionLabel: selectedDistrict,
         cropAreas: subdistrictCropTotals,
         cropColors,
         selectedCrops,
@@ -2651,13 +2695,30 @@ const App: React.FC = () => {
     if (splitScreenMode) return null;
     if (!showVillageWiseCard) return null;
     if (!/^\d{4}-\d{2}$/.test(predictAreaMonthInput.trim())) return null;
-    if (!selectedDistrict || !selectedSubdistrict || selectedVillage) return null;
 
-    return {
-      loading: subdistrictCropAreasLoading,
-      regionLabel: selectedSubdistrict,
-      rows: subdistrictVillageWiseRows,
-    };
+    // Subdistrict → village_wise
+    if (selectedDistrict && selectedSubdistrict && !selectedVillage) {
+      return {
+        loading: subdistrictCropAreasLoading,
+        regionLabel: selectedSubdistrict,
+        rows: subdistrictVillageWiseRows,
+        title: 'Village crop area',
+        regionColumnLabel: 'Village',
+      };
+    }
+
+    // District → subdistrict_wise (Admin: all crops; sugarcane login: sugarcane only via allowedCropKeys)
+    if (selectedDistrict && !selectedSubdistrict && !selectedVillage) {
+      return {
+        loading: subdistrictCropAreasLoading,
+        regionLabel: selectedDistrict,
+        rows: subdistrictVillageWiseRows,
+        title: 'Subdistrict crop area',
+        regionColumnLabel: 'Subdistrict',
+      };
+    }
+
+    return null;
   }, [
     splitScreenMode,
     showVillageWiseCard,
@@ -3412,10 +3473,10 @@ const App: React.FC = () => {
                   locationBoundary || fieldPlotsForMap.length > 0
                     ? mergeOutlineWithFieldPlots(locationBoundary, fieldPlotsForMap)
                     : plotsForMap;
-                setAllPlots(finalPlots);
-                const plotIds = plotsForMap.map(p => p.id);
-                setAvailablePlots(plotIds);
-                setTotalPlotsCount(plotIds.length);
+              setAllPlots(finalPlots);
+              const plotIds = plotsForMap.map(p => p.id);
+              setAvailablePlots(plotIds);
+              setTotalPlotsCount(plotIds.length);
               }
             } else {
               // Keep village boundary visible when we have tile URLs but no field boundaries from API
@@ -3433,7 +3494,7 @@ const App: React.FC = () => {
                   }
                 }
                 const outlinePlots = mergeOutlineWithFieldPlots(locationBoundary, fieldPlotsForMap);
-                if (Object.keys(tileUrlsMap).length === 0) {
+              if (Object.keys(tileUrlsMap).length === 0) {
                   setAllPlots(outlinePlots);
                 } else if (outlinePlots.length > 0) {
                   setAllPlots(outlinePlots);
@@ -3512,7 +3573,7 @@ const App: React.FC = () => {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
           setError(`Failed to load plots: ${errorMessage}`);
           if (!isFieldLevelAnalysis) {
-            setAllPlots(locationBoundary ? [locationBoundary] : []);
+          setAllPlots(locationBoundary ? [locationBoundary] : []);
           }
           setAvailablePlots([]);
           setTotalPlotsCount(0);
@@ -3996,10 +4057,10 @@ const App: React.FC = () => {
     const cancelSignal = { cancelled: false };
 
     const loadFieldPlots = async () => {
-      const villageData = leftVillages.find((v) => v.village === leftSelectedVillage);
-      const outlineCoords = villageData ? parseVillageBoundaryCoordinates(villageData) : [];
+        const villageData = leftVillages.find((v) => v.village === leftSelectedVillage);
+        const outlineCoords = villageData ? parseVillageBoundaryCoordinates(villageData) : [];
       const outlinePlot: OutlinePlot | null =
-        outlineCoords.length >= 3
+          outlineCoords.length >= 3
           ? { id: villageOutlinePlotId(leftSelectedVillage), area_ha: '0', boundary: outlineCoords }
           : null;
 
@@ -4027,11 +4088,11 @@ const App: React.FC = () => {
                 : [...prev, ...page]
             );
             if (isFirst) {
-              const bounds = L.latLngBounds([]);
+        const bounds = L.latLngBounds([]);
               (outlinePlot ? [outlinePlot, ...page] : page).forEach((plot) => {
-                (plot.boundary || []).forEach((coord: Coordinate) => bounds.extend([coord[1], coord[0]]));
-              });
-              if (bounds.isValid()) setPlotBounds(bounds);
+          (plot.boundary || []).forEach((coord: Coordinate) => bounds.extend([coord[1], coord[0]]));
+        });
+        if (bounds.isValid()) setPlotBounds(bounds);
             }
           },
           cancelSignal
@@ -4223,10 +4284,10 @@ const App: React.FC = () => {
     const cancelSignal = { cancelled: false };
 
     const loadFieldPlots = async () => {
-      const villageData = rightVillages.find((v) => v.village === rightSelectedVillage);
-      const outlineCoords = villageData ? parseVillageBoundaryCoordinates(villageData) : [];
+        const villageData = rightVillages.find((v) => v.village === rightSelectedVillage);
+        const outlineCoords = villageData ? parseVillageBoundaryCoordinates(villageData) : [];
       const outlinePlot: OutlinePlot | null =
-        outlineCoords.length >= 3
+          outlineCoords.length >= 3
           ? { id: villageOutlinePlotId(rightSelectedVillage), area_ha: '0', boundary: outlineCoords }
           : null;
 
@@ -4254,11 +4315,11 @@ const App: React.FC = () => {
                 : [...prev, ...page]
             );
             if (isFirst) {
-              const bounds = L.latLngBounds([]);
+        const bounds = L.latLngBounds([]);
               (outlinePlot ? [outlinePlot, ...page] : page).forEach((plot) => {
-                (plot.boundary || []).forEach((coord: Coordinate) => bounds.extend([coord[1], coord[0]]));
-              });
-              if (bounds.isValid()) setPlotBounds(bounds);
+          (plot.boundary || []).forEach((coord: Coordinate) => bounds.extend([coord[1], coord[0]]));
+        });
+        if (bounds.isValid()) setPlotBounds(bounds);
             }
           },
           cancelSignal
@@ -4367,7 +4428,7 @@ const App: React.FC = () => {
           }
           
           if (!isFieldLevelAnalysis) {
-            setLeftAllPlots([]);
+          setLeftAllPlots([]);
           }
           
           let response: GrowthAnalysisResponse | NDWIDetectionResponse;
@@ -4557,10 +4618,10 @@ const App: React.FC = () => {
             // Single boundary only — skip duplicate AOI polygon from analysis API when outline exists
             // Field-level growth keeps Display-boundary field polygons on the map.
             if (!isFieldLevelAnalysis) {
-              const finalPlots = locationBoundary ? [locationBoundary] : plotsForMap;
-              
-              if (finalPlots.length > 0) {
-                setLeftAllPlots(finalPlots);
+            const finalPlots = locationBoundary ? [locationBoundary] : plotsForMap;
+            
+            if (finalPlots.length > 0) {
+              setLeftAllPlots(finalPlots);
               } else if (locationBoundary) {
                 setLeftAllPlots([locationBoundary]);
               } else {
@@ -4666,7 +4727,7 @@ const App: React.FC = () => {
           setLeftAllPlotsAnalysisData(null);
           setLeftAllPlotsTileUrls({});
           if (!isFieldLevelAnalysis) {
-            setLeftAllPlots([]);
+          setLeftAllPlots([]);
           }
         } finally {
           setLeftLoading(false);
@@ -4729,7 +4790,7 @@ const App: React.FC = () => {
           }
           
           if (!isFieldLevelAnalysis) {
-            setRightAllPlots([]);
+          setRightAllPlots([]);
           }
           
           let response: GrowthAnalysisResponse | NDWIDetectionResponse;
@@ -4919,10 +4980,10 @@ const App: React.FC = () => {
             // Single boundary only — skip duplicate AOI polygon from analysis API when outline exists
             // Field-level analysis keeps Display-boundary / crop-layer polygons on the map.
             if (!isFieldLevelAnalysis) {
-              const finalPlots = locationBoundary ? [locationBoundary] : plotsForMap;
-              
-              if (finalPlots.length > 0) {
-                setRightAllPlots(finalPlots);
+            const finalPlots = locationBoundary ? [locationBoundary] : plotsForMap;
+            
+            if (finalPlots.length > 0) {
+              setRightAllPlots(finalPlots);
               } else if (locationBoundary) {
                 setRightAllPlots([locationBoundary]);
               } else {
@@ -5028,7 +5089,7 @@ const App: React.FC = () => {
           setRightAllPlotsAnalysisData(null);
           setRightAllPlotsTileUrls({});
           if (!isFieldLevelAnalysis) {
-            setRightAllPlots([]);
+          setRightAllPlots([]);
           }
         } finally {
           setRightLoading(false);
@@ -6315,24 +6376,38 @@ const App: React.FC = () => {
     // Save to localStorage
     localStorage.setItem('isAuthenticated', 'true');
     localStorage.setItem('currentUser', user);
-    // Splash with district tabs on login background
+    if (isSugarcaneOnlyUser(user)) {
+      setSelectedCrops(sugarcaneOnlySelection());
+    }
+    const currentMonth = getCurrentPredictAreaMonth();
+    if (!/^\d{4}-\d{2}$/.test(predictAreaMonthInput.trim())) {
+      setPredictAreaMonthInput(currentMonth);
+    }
     setSelectedDistrict('');
     setSelectedSubdistrict('');
     setSelectedVillage('');
-    setShowLoginFlash(true);
   };
 
   // Handle logout
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentUser('');
-    setShowLoginFlash(false);
     setSelectedDistrict('');
     setSelectedSubdistrict('');
     setSelectedVillage('');
     // Clear localStorage
     localStorage.removeItem('isAuthenticated');
     localStorage.removeItem('currentUser');
+  };
+
+  /** Top nav back → district selection splash (stay logged in) */
+  const handleBackToDistricts = () => {
+    setSelectedDistrict('');
+    setSelectedSubdistrict('');
+    setSelectedVillage('');
+    setShowGraphPage(false);
+    setShowAnalysisTrendsPage(false);
+    setFullscreenAnalysisTrendCard(null);
   };
 
   // Show login page if not authenticated
@@ -6342,18 +6417,6 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-screen w-full font-sans overflow-hidden relative ${isDarkMode ? 'bg-gray-900 text-gray-100' : 'bg-[#eaf6f0] text-gray-900'} ${!isDarkMode ? 'theme-white' : ''}`}>
-      {showLoginFlash && (
-        <LoginTransitionFlash
-          districts={districts}
-          districtsLoading={districts.length === 0}
-          onSelectDistrict={(name) => {
-            setSelectedDistrict(name);
-            setSelectedSubdistrict('');
-            setSelectedVillage('');
-          }}
-          onComplete={() => loginFlashCompleteRef.current()}
-        />
-      )}
       {/* Bar Graph page - full screen when opened from header icon */}
       {false ? (
         <div className={`flex-1 flex flex-col overflow-auto ${isDarkMode ? 'bg-gray-900' : 'bg-[#eaf6f0]'}`}>
@@ -6442,22 +6505,22 @@ const App: React.FC = () => {
                           loading: villageOwnersLoading,
                           disabled: !selectedDistrict || !selectedSubdistrict || !selectedVillage,
                           onChange: (checked) => {
-                            if (!checked) {
-                              setShowVillageOwners(false);
-                              setVillagePlotMetaById({});
-                              setVillageOwnersError(null);
-                              return;
-                            }
+                        if (!checked) {
+                          setShowVillageOwners(false);
+                          setVillagePlotMetaById({});
+                          setVillageOwnersError(null);
+                          return;
+                        }
                             if (!selectedVillage) return;
-                            void loadVillageOwnerOverlay({
-                              district: selectedDistrict,
-                              subdistrict: selectedSubdistrict,
-                              village: selectedVillage,
-                              villageList: villages,
-                              setPlots: setAllPlots,
-                              setBounds: setPlotBounds,
-                              onOwnersShown: () => setShowVillageOwners(true),
-                            });
+                        void loadVillageOwnerOverlay({
+                          district: selectedDistrict,
+                          subdistrict: selectedSubdistrict,
+                          village: selectedVillage,
+                          villageList: villages,
+                          setPlots: setAllPlots,
+                          setBounds: setPlotBounds,
+                          onOwnersShown: () => setShowVillageOwners(true),
+                        });
                           },
                           tone: 'sky',
                         },
@@ -6488,9 +6551,9 @@ const App: React.FC = () => {
                       footer={
                         villageOwnersError || buildingError ? (
                           <div className="space-y-1">
-                            {villageOwnersError ? (
-                              <p className="text-[10px] leading-snug text-red-400">{villageOwnersError}</p>
-                            ) : null}
+                    {villageOwnersError ? (
+                      <p className="text-[10px] leading-snug text-red-400">{villageOwnersError}</p>
+                    ) : null}
                             {buildingError ? (
                               <p className="text-[10px] leading-snug text-red-400">{buildingError}</p>
                             ) : null}
@@ -6942,7 +7005,7 @@ const App: React.FC = () => {
           setShowDownloadMenu(false);
           downloadChartExcel();
         }}
-        onLogout={handleLogout}
+        onBack={handleBackToDistricts}
       />
 
       <div className="relative flex h-full min-h-0 flex-1 overflow-hidden">
@@ -6987,20 +7050,20 @@ const App: React.FC = () => {
                         ['soil', <Droplet size={15} />],
                         ['pest', <Bug size={15} />],
                       ] as Array<[AnalysisType, React.ReactElement]>).map(([tab, icon]) => (
-                        <button
+              <button
                           key={tab}
-                          type="button"
+                type="button"
                           onClick={() => toggleActiveTabForSide(tab, 'left')}
                           className={toolBtnBase(getActiveTab('left') === tab, 'bg-emerald-500 text-black border-emerald-300')}
                           title={String(tab)}
                         >
                           {icon}
-                        </button>
+              </button>
                       ))}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
+              <button
+                type="button"
                         onClick={() => setShowWindFlowLayer((v) => !v)}
                         disabled={!windDirectData?.points_weather?.length}
                         className={`${toolBtnBase(
@@ -7017,31 +7080,31 @@ const App: React.FC = () => {
                         aria-pressed={showWindFlowLayer}
                       >
                         <Wind size={16} strokeWidth={2.2} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleActiveTabForSide('waterSource', 'left')}
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleActiveTabForSide('waterSource', 'left')}
                         className={toolBtnBase(getActiveTab('left') === 'waterSource', 'bg-blue-500 text-black border-blue-300')}
-                        title="Water Source (click again to hide)"
-                      >
+                title="Water Source (click again to hide)"
+              >
                         <Waves size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleActiveTabForSide('forest', 'left')}
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleActiveTabForSide('forest', 'left')}
                         className={toolBtnBase(getActiveTab('left') === 'forest', 'bg-lime-500 text-black border-lime-300')}
-                        title="Forest (click again to hide)"
-                      >
+                title="Forest (click again to hide)"
+              >
                         <Trees size={15} />
-                      </button>
+              </button>
                       <button
                         type="button"
-                        onClick={async () => {
-                          if (lstTileUrl) {
-                            clearLstTileLayer();
-                            return;
-                          }
-                          if (lstLoading || loading || !selectedDistrict) return;
+                onClick={async () => {
+                  if (lstTileUrl) {
+                    clearLstTileLayer();
+                    return;
+                  }
+                  if (lstLoading || loading || !selectedDistrict) return;
                           await loadLstForSelection(
                             selectedDistrict,
                             selectedSubdistrict || undefined,
@@ -7051,13 +7114,13 @@ const App: React.FC = () => {
                         }}
                         disabled={!lstTileUrl && (!selectedDistrict || lstLoading || loading)}
                         className={`${toolBtnBase(!!lstTileUrl, 'bg-orange-500 text-white border-orange-600 shadow-md')} disabled:opacity-45 disabled:cursor-not-allowed`}
-                        title="Land Surface Temperature (click again to hide)"
-                      >
+                title="Land Surface Temperature (click again to hide)"
+              >
                         <Thermometer size={16} strokeWidth={2.2} />
-                      </button>
-                    </div>
-                  </div>
+                  </button>
                 </div>
+          </div>
+        </div>
               )}
 
               <div className={!isDarkMode ? 'bg-white rounded-2xl border border-emerald-100 shadow-sm p-4' : ''}>
@@ -7067,35 +7130,35 @@ const App: React.FC = () => {
 
           {/* Prediction month — date panel (dashboard + bar graph sidebar) */}
           <div className="space-y-1 mb-3">
-            <label
-              className={`block text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}
-            >
-              Prediction month
-            </label>
-            <input
-              type="month"
-              value={predictAreaMonthInput}
-              onChange={(e) => setPredictAreaMonthInput(e.target.value)}
-              className={`w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
-                isDarkMode
-                  ? 'bg-gray-700 border border-gray-600 text-white [color-scheme:dark]'
-                  : 'bg-white border border-emerald-100 text-slate-800'
-              }`}
-            />
-            <p className={`text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-              Select a month to load predict-area data (
-              <code className="text-[10px]">month=YYYY-MM</code>).
-              {predictAreaDataMonth && (
-                <>
-                  {' '}
-                  Showing:{' '}
-                  <span className={`font-medium ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
-                    {formatPredictAreaMonthLabel(predictAreaDataMonth)}
-                  </span>
-                </>
-              )}
-            </p>
-          </div>
+                <label
+                  className={`block text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}
+                >
+                  Prediction month
+                </label>
+                <input
+                  type="month"
+                  value={predictAreaMonthInput}
+                  onChange={(e) => setPredictAreaMonthInput(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
+                    isDarkMode
+                      ? 'bg-gray-700 border border-gray-600 text-white [color-scheme:dark]'
+                      : 'bg-white border border-emerald-100 text-slate-800'
+                  }`}
+                />
+                <p className={`text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
+                  Select a month to load predict-area data (
+                  <code className="text-[10px]">month=YYYY-MM</code>).
+                  {predictAreaDataMonth && (
+                    <>
+                      {' '}
+                      Showing:{' '}
+                      <span className={`font-medium ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                        {formatPredictAreaMonthLabel(predictAreaDataMonth)}
+                      </span>
+                    </>
+                  )}
+                </p>
+              </div>
 
           {/* District Dropdown — tabs are on login splash only */}
           <div>
@@ -7206,7 +7269,8 @@ const App: React.FC = () => {
                 selectedCrops={selectedCrops}
                 onToggleCrop={toggleSelectedCrop}
                 onToggleAll={toggleAllCrops}
-                isDarkMode={isDarkMode}
+                    isDarkMode={isDarkMode}
+                allowedCropKeys={allowedCropKeys}
               />
             </div>
           )}
@@ -7308,11 +7372,11 @@ const App: React.FC = () => {
                 footer={
                   villageOwnersError || buildingError ? (
                     <div className="space-y-1">
-                      {villageOwnersError ? (
-                        <p className={`text-[10px] leading-snug ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>
-                          {villageOwnersError}
-                        </p>
-                      ) : null}
+                  {villageOwnersError ? (
+                    <p className={`text-[10px] leading-snug ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>
+                      {villageOwnersError}
+                    </p>
+                  ) : null}
                       {buildingError ? (
                         <p className={`text-[10px] leading-snug ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>
                           {buildingError}
@@ -7429,7 +7493,7 @@ const App: React.FC = () => {
                 {/* <span className="text-[10px]">Logout</span> */}
               </button>
             </div>
-          </aside>
+      </aside>
 
           {/* Edge toggle handle — stays reachable when menu is collapsed */}
           <button
@@ -7482,8 +7546,8 @@ const App: React.FC = () => {
         >
           {(showGraphPage || showAnalysisTrendsPage) && (
             <div className={`relative flex flex-col flex-1 min-h-0 w-full ${isDarkMode ? 'bg-gray-950' : 'bg-[#eaf6f0]'}`}>
-              {/* Graph switcher + frequency — one header row (no overlap on cards) */}
-              <div className="absolute top-3 left-3 right-3 z-[20] flex flex-wrap items-center gap-2 sm:top-4 sm:left-4 sm:right-4">
+              {/* Graph switcher + frequency — centered at top */}
+              <div className="absolute top-3 left-3 right-3 z-[20] flex flex-wrap items-center justify-center gap-2 sm:top-4 sm:left-4 sm:right-4">
                 <button
                   type="button"
                   onClick={() => {
@@ -8229,8 +8293,8 @@ const App: React.FC = () => {
                         seriesColors: Record<string, string>;
                       } => {
                         const periods = (storedSeries || []).map((item: GrowthStoredItem) => ({
-                          label: monthLabel(item.year_month),
-                          classwise: (item.response_data as any)?.classwise || [],
+                            label: monthLabel(item.year_month),
+                            classwise: (item.response_data as any)?.classwise || [],
                         }));
                         const discovered = new Set<string>();
                         periods.forEach((p) => Object.keys(classwiseToMap(p.classwise)).forEach((k) => discovered.add(k)));
@@ -8289,17 +8353,17 @@ const App: React.FC = () => {
                         });
                         const seriesKeys = ['Total', ...Array.from(childKeys)];
                         const rows = (pestStoredSeries || [])
-                          .filter((item: PestStoredItem) => (item as any)?.response_data?.hierarchy?.[pestCategoryForGraph])
-                          .map((item: PestStoredItem) => {
-                            const node = (item as any).response_data?.hierarchy?.[pestCategoryForGraph] || {};
-                            const row: Record<string, string | number> = {
-                              label: monthLabel(item.year_month),
-                              Total: Number(node?.total_area_ha ?? 0),
-                            };
-                            Array.from(childKeys).forEach((child) => {
-                              row[child] = Number((node?.children?.[child] as any)?.area_ha ?? (node?.children?.[child] as any)?.total_area_ha ?? 0);
-                            });
-                            return row;
+                            .filter((item: PestStoredItem) => (item as any)?.response_data?.hierarchy?.[pestCategoryForGraph])
+                            .map((item: PestStoredItem) => {
+                              const node = (item as any).response_data?.hierarchy?.[pestCategoryForGraph] || {};
+                              const row: Record<string, string | number> = {
+                                label: monthLabel(item.year_month),
+                                Total: Number(node?.total_area_ha ?? 0),
+                              };
+                              Array.from(childKeys).forEach((child) => {
+                                row[child] = Number((node?.children?.[child] as any)?.area_ha ?? (node?.children?.[child] as any)?.total_area_ha ?? 0);
+                              });
+                              return row;
                           });
                         const hasValues = rows.some((r) => seriesKeys.some((k) => Number(r[k] ?? 0) > 0));
                         const seriesColors: Record<string, string> = {};
@@ -8719,30 +8783,30 @@ const App: React.FC = () => {
           {!splitScreenMode && !showGraphPage && !showAnalysisTrendsPage && !sidebarVisible && (
             <div className="absolute top-3 left-3 z-[1300] flex flex-col gap-2 sm:top-4 sm:left-4">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowWindFlowLayer((v) => !v)}
-                  disabled={!windDirectData?.points_weather?.length}
+              <button
+                type="button"
+                onClick={() => setShowWindFlowLayer((v) => !v)}
+                disabled={!windDirectData?.points_weather?.length}
                   className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-colors ${
-                    isDarkMode
-                      ? showWindFlowLayer && windDirectData?.points_weather?.length
-                        ? 'bg-sky-700/95 border-sky-500 text-white shadow-md'
-                        : 'bg-black/60 border-gray-700 text-gray-200 hover:bg-black/75 disabled:opacity-45 disabled:cursor-not-allowed'
-                      : showWindFlowLayer && windDirectData?.points_weather?.length
-                        ? 'bg-sky-600 text-white border-sky-700 shadow-md'
-                        : 'bg-white/90 border-emerald-100 text-gray-900 hover:bg-white disabled:opacity-45 disabled:cursor-not-allowed'
-                  }`}
-                  title={
-                    !windDirectData?.points_weather?.length
-                      ? 'Wind flow: select a district and wait for AOI wind data'
-                      : showWindFlowLayer
+                  isDarkMode
+                    ? showWindFlowLayer && windDirectData?.points_weather?.length
+                      ? 'bg-sky-700/95 border-sky-500 text-white shadow-md'
+                      : 'bg-black/60 border-gray-700 text-gray-200 hover:bg-black/75 disabled:opacity-45 disabled:cursor-not-allowed'
+                    : showWindFlowLayer && windDirectData?.points_weather?.length
+                      ? 'bg-sky-600 text-white border-sky-700 shadow-md'
+                      : 'bg-white/90 border-emerald-100 text-gray-900 hover:bg-white disabled:opacity-45 disabled:cursor-not-allowed'
+                }`}
+                title={
+                  !windDirectData?.points_weather?.length
+                    ? 'Wind flow: select a district and wait for AOI wind data'
+                    : showWindFlowLayer
                         ? 'Hide wind flow'
                         : 'Show wind flow'
-                  }
-                  aria-pressed={showWindFlowLayer}
-                >
+                }
+                aria-pressed={showWindFlowLayer}
+              >
                   <Wind size={18} strokeWidth={2.2} />
-                </button>
+              </button>
                 <button
                   type="button"
                   onClick={() => toggleActiveTabForSide('waterSource', 'left')}
@@ -8771,33 +8835,33 @@ const App: React.FC = () => {
                 >
                   <Trees size={16} />
                 </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (lstTileUrl) {
-                      clearLstTileLayer();
-                      return;
-                    }
-                    if (lstLoading || loading || !selectedDistrict) return;
+              <button
+                type="button"
+                onClick={async () => {
+                  if (lstTileUrl) {
+                    clearLstTileLayer();
+                    return;
+                  }
+                  if (lstLoading || loading || !selectedDistrict) return;
                     await loadLstForSelection(
                       selectedDistrict,
                       selectedSubdistrict || undefined,
                       selectedVillage || undefined,
                       'left'
                     );
-                  }}
-                  disabled={!lstTileUrl && (!selectedDistrict || lstLoading || loading)}
-                  className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-colors ${
-                    lstTileUrl
-                      ? 'bg-orange-500 text-white border-orange-600 shadow-md'
+                }}
+                disabled={!lstTileUrl && (!selectedDistrict || lstLoading || loading)}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-colors ${
+                  lstTileUrl
+                    ? 'bg-orange-500 text-white border-orange-600 shadow-md'
                       : isDarkMode
                         ? 'bg-black/60 border-gray-700 text-gray-200 hover:bg-black/75 disabled:opacity-45 disabled:cursor-not-allowed'
                         : 'bg-white/90 border-emerald-100 text-gray-900 hover:bg-white disabled:opacity-45 disabled:cursor-not-allowed'
-                  }`}
-                  title="Land Surface Temperature (click again to hide)"
-                >
-                  <Thermometer size={18} strokeWidth={2.2} />
-                </button>
+                }`}
+                title="Land Surface Temperature (click again to hide)"
+              >
+                <Thermometer size={18} strokeWidth={2.2} />
+              </button>
               </div>
 
               {!isMapFullscreen && (
@@ -8872,7 +8936,7 @@ const App: React.FC = () => {
                 );
               })}
             </div>
-          )}
+            )}
           {/* Top Navigation Tabs - split screen only (normal mode uses header center) */}
           {splitScreenMode && (
           <div className={`absolute top-[4.5rem] left-1/2 transform -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 md:gap-4 px-2 md:px-0 ${splitScreenMode ? 'max-w-[calc(50vw-120px)]' : 'w-auto'}`}>
@@ -10007,6 +10071,7 @@ const App: React.FC = () => {
                     cropColors={predictAreaMapCard.cropColors}
                     selectedCrops={predictAreaMapCard.selectedCrops}
                     onToggleCrop={predictAreaMapCard.onToggleCrop}
+                    allowedCropKeys={allowedCropKeys}
                   />
                 </div>
               ) : null}
@@ -10016,6 +10081,9 @@ const App: React.FC = () => {
                     loading={villageWiseMapCard.loading}
                     regionLabel={villageWiseMapCard.regionLabel}
                     rows={villageWiseMapCard.rows}
+                    allowedCropKeys={allowedCropKeys}
+                    title={villageWiseMapCard.title}
+                    regionColumnLabel={villageWiseMapCard.regionColumnLabel}
                   />
                 </div>
               ) : null}
@@ -11349,7 +11417,7 @@ const App: React.FC = () => {
                 <Loader2 className="animate-spin text-green-500" size={48} />
               </div>
             )}
-            <PlotsMap
+              <PlotsMap
                 plots={rightAllPlots}
                 selectedPlotId={selectedPlotId}
                 cropColor={predictAreaCropColor}
@@ -11451,28 +11519,28 @@ const App: React.FC = () => {
               {/* Prediction month — top, before district */}
               {!showGraphPage && !showAnalysisTrendsPage && (
                 <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    Prediction month
-                  </label>
-                  <input
-                    type="month"
-                    value={predictAreaMonthInput}
-                    onChange={(e) => setPredictAreaMonthInput(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500 [color-scheme:dark]"
-                  />
-                  <p className="text-[11px] text-gray-500 leading-snug">
-                    Select a month to load predict-area. API: <code className="text-[10px]">month=YYYY-MM</code>.
-                    {predictAreaDataMonth && (
-                      <>
-                        {' '}
-                        Showing:{' '}
-                        <span className="font-medium text-emerald-300">
-                          {formatPredictAreaMonthLabel(predictAreaDataMonth)}
-                        </span>
-                      </>
-                    )}
-                  </p>
-                </div>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Prediction month
+                    </label>
+                    <input
+                      type="month"
+                      value={predictAreaMonthInput}
+                      onChange={(e) => setPredictAreaMonthInput(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500 [color-scheme:dark]"
+                    />
+                    <p className="text-[11px] text-gray-500 leading-snug">
+                      Select a month to load predict-area. API: <code className="text-[10px]">month=YYYY-MM</code>.
+                      {predictAreaDataMonth && (
+                        <>
+                          {' '}
+                          Showing:{' '}
+                          <span className="font-medium text-emerald-300">
+                            {formatPredictAreaMonthLabel(predictAreaDataMonth)}
+                          </span>
+                        </>
+                      )}
+                    </p>
+              </div>
               )}
 
               {/* District Dropdown */}
@@ -11556,6 +11624,7 @@ const App: React.FC = () => {
                     onToggleCrop={toggleSelectedCrop}
                     onToggleAll={toggleAllCrops}
                     isDarkMode
+                    allowedCropKeys={allowedCropKeys}
                   />
                 </div>
               )}
@@ -11635,9 +11704,9 @@ const App: React.FC = () => {
                     footer={
                       villageOwnersError || buildingError ? (
                         <div className="space-y-1">
-                          {villageOwnersError ? (
-                            <p className="text-[10px] leading-snug text-red-400">{villageOwnersError}</p>
-                          ) : null}
+                      {villageOwnersError ? (
+                        <p className="text-[10px] leading-snug text-red-400">{villageOwnersError}</p>
+                      ) : null}
                           {buildingError ? (
                             <p className="text-[10px] leading-snug text-red-400">{buildingError}</p>
                           ) : null}

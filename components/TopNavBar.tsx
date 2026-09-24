@@ -1,5 +1,5 @@
 import React from 'react';
-import { CloudSun, Droplets, Download, FileSpreadsheet, FileText, Loader2, LogOut, Map, LayoutDashboard, Wind, Thermometer } from 'lucide-react';
+import { CloudSun, Droplets, Download, FileSpreadsheet, FileText, Loader2, ArrowLeft, Map, LayoutDashboard, Wind, Thermometer } from 'lucide-react';
 import type { WeatherDailyResponse } from '../services/analysisService';
 
 export type TopNavView = 'map' | 'dashboard';
@@ -17,7 +17,8 @@ export interface TopNavBarProps {
   onToggleDownloadMenu: () => void;
   onDownloadPdf: () => void;
   onDownloadExcel: () => void;
-  onLogout: () => void;
+  /** Return to district selection splash */
+  onBack: () => void;
 }
 
 function todayDateKey(): string {
@@ -55,7 +56,7 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
   onToggleDownloadMenu,
   onDownloadPdf,
   onDownloadExcel,
-  onLogout,
+  onBack,
 }) => {
   const locationLabel =
     (weatherData?.name && String(weatherData.name).trim()) ||
@@ -225,15 +226,16 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
 
         <button
           type="button"
-          onClick={onLogout}
-          className={`p-2 rounded-lg border transition-colors shrink-0 ${
+          onClick={onBack}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm font-semibold transition-colors shrink-0 ${
             isDarkMode
-              ? 'border-gray-600 bg-gray-800 text-gray-200 hover:bg-red-900/40 hover:border-red-700'
-              : 'border-emerald-100 bg-white text-gray-700 hover:bg-red-50 hover:border-red-200'
+              ? 'border-gray-600 bg-gray-800 text-gray-200 hover:bg-gray-700 hover:border-emerald-500'
+              : 'border-emerald-100 bg-white text-gray-700 hover:bg-emerald-50 hover:border-emerald-300'
           }`}
-          title="Logout"
+          title="Back to district list"
         >
-          <LogOut size={18} />
+          <ArrowLeft size={18} />
+          <span className="hidden sm:inline"></span>
         </button>
       </div>
     </header>

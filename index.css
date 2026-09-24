@@ -158,11 +158,9 @@ html, body {
   }
 }
 
-/* District picker overlay: blur sidebar + map behind */
+/* District picker overlay — keep transparent; page sets its own bg (white) */
 .login-flash-overlay {
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  background-color: rgba(2, 6, 23, 0.35);
+  /* no forced dark backdrop — LoginTransitionFlash uses solid white bg */
 }
 
 .login-flash-title,

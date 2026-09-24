@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
     const villageDataApi =
       env.VITE_VILLAGE_DATA_API_URL || 'https://jam-hose-bride-plain.trycloudflare.com';
     const apiProxyTarget =
-      env.VITE_API_PROXY_TARGET || 'https://web-production-72a7.up.railway.app';
+      env.VITE_API_PROXY_TARGET || 'http://192.168.42.142:7007';
     return {
       server: {
         port: 3000,

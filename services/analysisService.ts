@@ -1866,6 +1866,144 @@ export const fetchSoilMoistureStoredSeriesWithFallback = (
   limit = 500
 ) => fetchStoredSeriesWithFallback(fetchSoilMoistureStoredSeries, district, subdistrict, village, limit);
 
+/** GET /api-stored/districts/latest — district crop areas + classwise stored rows for splash/dashboard. */
+export interface StoredDistrictCropAreasHa {
+  sugarcane?: number;
+  wheat?: number;
+  onion?: number;
+  banana?: number;
+  mango?: number;
+  [crop: string]: number | undefined;
+}
+
+export interface StoredDistrictCropwiseArea {
+  district?: string;
+  year_month?: string;
+  is_current_month?: boolean;
+  unit?: string;
+  aggregation?: string;
+  villages_counted?: number;
+  subdistricts_with_data?: number;
+  crop_areas_ha?: StoredDistrictCropAreasHa;
+  total_crop_area_ha?: number;
+}
+
+export interface StoredDistrictClasswiseItem {
+  color?: string;
+  class_id?: number;
+  class_name?: string;
+  percentage?: number;
+  area_hectares?: number;
+}
+
+export interface StoredDistrictAnalysisBlock {
+  district?: string;
+  year_month?: string;
+  is_current_month?: boolean;
+  obs_date?: string;
+  created_at?: string;
+  response_data?: {
+    classwise?: StoredDistrictClasswiseItem[];
+    pixel_summary?: Record<string, unknown>;
+    hierarchy?: Record<
+      string,
+      {
+        percentage?: number;
+        total_area_ha?: number;
+        children?: Record<string, { area_ha?: number; pct_of_parent?: number }>;
+      }
+    >;
+    feature?: unknown;
+    features?: unknown;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface StoredDistrictLatestItem {
+  district: string;
+  cropwise_area?: StoredDistrictCropwiseArea | null;
+  pest_detection?: StoredDistrictAnalysisBlock | null;
+  growth?: StoredDistrictAnalysisBlock | null;
+  water_uptake?: StoredDistrictAnalysisBlock | null;
+  soil_moisture?: StoredDistrictAnalysisBlock | null;
+}
+
+export interface StoredDistrictsLatestResponse {
+  month?: string;
+  current_month?: string;
+  districts_count?: number;
+  note?: string;
+  districts: StoredDistrictLatestItem[];
+}
+
+const districtsLatestCache = createApiCache<StoredDistrictsLatestResponse>();
+const DISTRICTS_LATEST_TTL_MS = 10 * 60 * 1000;
+
+export const fetchStoredDistrictsLatest = async (
+  month: string,
+  includeResponse = true
+): Promise<StoredDistrictsLatestResponse> => {
+  const m = (month || getCurrentPredictAreaMonth()).trim();
+  const cacheKey = `districts-latest:${m}:${includeResponse ? '1' : '0'}`;
+  return districtsLatestCache.getOrFetch(cacheKey, DISTRICTS_LATEST_TTL_MS, async () => {
+    const params = new URLSearchParams({
+      month: m,
+      include_response: String(includeResponse),
+    });
+    const url = `${getBaseUrl()}/api-stored/districts/latest?${params.toString()}`;
+    try {
+      const response = await getJsonWithRetry(url);
+      if (!response.ok) {
+        throw new Error(
+          `Districts latest API Error: ${response.status} ${response.statusText}`
+        );
+      }
+      const raw = (await response.json()) as StoredDistrictsLatestResponse;
+      return {
+        ...raw,
+        districts: Array.isArray(raw?.districts) ? raw.districts : [],
+      };
+    } catch (error) {
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error(`Network error: Unable to connect to ${url}`);
+      }
+      throw error;
+    }
+  });
+};
+
+/** Start fetch before login so district splash has data ready. */
+export function preloadStoredDistrictsLatest(month?: string): void {
+  const m =
+    month && /^\d{4}-\d{2}$/.test(month.trim())
+      ? month.trim()
+      : getCurrentPredictAreaMonth();
+  void fetchStoredDistrictsLatest(m, true).catch(() => {
+    /* preload is best-effort */
+  });
+}
+
+/** Prefer class % by name (case-insensitive); falls back to 0. */
+export function classwisePct(
+  block: StoredDistrictAnalysisBlock | null | undefined,
+  className: string
+): number {
+  const list = block?.response_data?.classwise;
+  if (!Array.isArray(list)) return 0;
+  const target = className.trim().toLowerCase();
+  const hit = list.find((c) => (c.class_name || '').trim().toLowerCase() === target);
+  const pct = hit?.percentage;
+  return typeof pct === 'number' && !Number.isNaN(pct) ? pct : 0;
+}
+
+export function pestHealthyPct(
+  block: StoredDistrictAnalysisBlock | null | undefined
+): number {
+  const pct = block?.response_data?.hierarchy?.healthy?.percentage;
+  return typeof pct === 'number' && !Number.isNaN(pct) ? pct : 0;
+}
+
 // Dashboard indices store - POST returns stored indices for the given district, subdistrict, frequency
 export type DashboardIndicesFrequency = 'weekly' | 'monthly' | 'yearly';
 

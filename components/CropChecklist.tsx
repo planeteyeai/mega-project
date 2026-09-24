@@ -6,15 +6,23 @@ export interface CropChecklistProps {
   checkedCrops: Record<CropSelectionKey, boolean>;
   onToggleCrop: (crop: CropSelectionKey) => void;
   isDarkMode?: boolean;
+  allowedCropKeys?: CropSelectionKey[] | null;
 }
 
 const CropChecklist: React.FC<CropChecklistProps> = ({
   checkedCrops,
   onToggleCrop,
   isDarkMode = true,
-}) => (
+  allowedCropKeys = null,
+}) => {
+  const options =
+    allowedCropKeys && allowedCropKeys.length > 0
+      ? CROP_SELECTION_OPTIONS.filter((o) => allowedCropKeys.includes(o.key))
+      : CROP_SELECTION_OPTIONS;
+
+  return (
   <div className="space-y-2">
-    {CROP_SELECTION_OPTIONS.map((crop) => (
+    {options.map((crop) => (
       <label
         key={crop.key}
         className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors ${
@@ -43,6 +51,7 @@ const CropChecklist: React.FC<CropChecklistProps> = ({
       </label>
     ))}
   </div>
-);
+  );
+};
 
 export default CropChecklist;

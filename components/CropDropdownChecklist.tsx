@@ -36,10 +36,33 @@ export function getPredictCropMode(crops: CropSelectionState): 'all' | 'sugarcan
   return null;
 }
 
-function formatSummary(crops: CropSelectionState): string {
-  const picked = CROP_SELECTION_OPTIONS.filter((o) => crops[o.key]).map((o) => o.label);
+/** Login username that may only see / select Sugarcane. */
+export const SUGARCANE_ONLY_USER = 'sugarcane';
+
+export function isSugarcaneOnlyUser(user: string): boolean {
+  return user.trim().toLowerCase() === SUGARCANE_ONLY_USER;
+}
+
+/** null = all crops allowed */
+export function getAllowedCropKeys(user: string): CropSelectionKey[] | null {
+  if (isSugarcaneOnlyUser(user)) return ['sugarcane'];
+  return null;
+}
+
+export function sugarcaneOnlySelection(): CropSelectionState {
+  return {
+    sugarcane: true,
+    wheat: false,
+    Soyabean: false,
+    Mango: false,
+    Banana: false,
+  };
+}
+
+function formatSummary(crops: CropSelectionState, options = CROP_SELECTION_OPTIONS): string {
+  const picked = options.filter((o) => crops[o.key]).map((o) => o.label);
   if (picked.length === 0) return '-- Select Crop --';
-  if (picked.length === CROP_SELECTION_OPTIONS.length) return 'All';
+  if (picked.length === options.length && options.length > 1) return 'All';
   if (picked.length <= 2) return picked.join(', ');
   return `${picked.length} crops selected`;
 }
@@ -49,6 +72,8 @@ export interface CropDropdownChecklistProps {
   onToggleCrop: (crop: CropSelectionKey) => void;
   onToggleAll: () => void;
   isDarkMode?: boolean;
+  /** When set, only these crops appear in the dropdown */
+  allowedCropKeys?: CropSelectionKey[] | null;
 }
 
 const CropDropdownChecklist: React.FC<CropDropdownChecklistProps> = ({
@@ -56,10 +81,17 @@ const CropDropdownChecklist: React.FC<CropDropdownChecklistProps> = ({
   onToggleCrop,
   onToggleAll,
   isDarkMode = true,
+  allowedCropKeys = null,
 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const allChecked = CROP_SELECTION_KEYS.every((key) => selectedCrops[key]);
+  const visibleOptions =
+    allowedCropKeys && allowedCropKeys.length > 0
+      ? CROP_SELECTION_OPTIONS.filter((o) => allowedCropKeys.includes(o.key))
+      : CROP_SELECTION_OPTIONS;
+  const visibleKeys = visibleOptions.map((o) => o.key);
+  const allChecked =
+    visibleKeys.length > 0 && visibleKeys.every((key) => selectedCrops[key]);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -84,7 +116,7 @@ const CropDropdownChecklist: React.FC<CropDropdownChecklistProps> = ({
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="truncate">{formatSummary(selectedCrops)}</span>
+        <span className="truncate">{formatSummary(selectedCrops, visibleOptions)}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -95,7 +127,7 @@ const CropDropdownChecklist: React.FC<CropDropdownChecklistProps> = ({
           }`}
           role="listbox"
         >
-          {CROP_SELECTION_OPTIONS.map((crop) => (
+          {visibleOptions.map((crop) => (
             <label
               key={crop.key}
               className={`flex cursor-pointer items-center gap-2.5 border-b px-3 py-2.5 last:border-b-0 ${
@@ -119,21 +151,23 @@ const CropDropdownChecklist: React.FC<CropDropdownChecklistProps> = ({
               <span className={`text-sm ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>{crop.label}</span>
             </label>
           ))}
-          <label
-            className={`flex cursor-pointer items-center gap-2.5 border-t px-3 py-2.5 font-medium ${
-              isDarkMode
-                ? 'border-gray-600 bg-gray-900/50 hover:bg-gray-700/80'
-                : 'border-emerald-100 bg-emerald-50/40 hover:bg-emerald-50'
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={allChecked}
-              onChange={onToggleAll}
-              className="h-4 w-4 rounded border-gray-500 accent-emerald-500"
-            />
-            <span className={`text-sm ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>All</span>
-          </label>
+          {visibleKeys.length > 1 ? (
+            <label
+              className={`flex cursor-pointer items-center gap-2.5 border-t px-3 py-2.5 font-medium ${
+                isDarkMode
+                  ? 'border-gray-600 bg-gray-900/50 hover:bg-gray-700/80'
+                  : 'border-emerald-100 bg-emerald-50/40 hover:bg-emerald-50'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={allChecked}
+                onChange={onToggleAll}
+                className="h-4 w-4 rounded border-gray-500 accent-emerald-500"
+              />
+              <span className={`text-sm ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>All</span>
+            </label>
+          ) : null}
         </div>
       )}
     </div>

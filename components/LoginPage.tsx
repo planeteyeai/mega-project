@@ -42,12 +42,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     }
 
     // Check credentials
-    if (username === 'Admin' && password === 'farm123') {
+    const userKey = username.trim();
+    const validUsers: { user: string; pass: string }[] = [
+      { user: 'Admin', pass: 'farm123' },
+      { user: 'sugarcane', pass: 'sugarcane@123' },
+    ];
+    const matched = validUsers.find(
+      (u) => u.user.toLowerCase() === userKey.toLowerCase() && u.pass === password
+    );
+    if (matched) {
       setIsLoginLoading(true);
       // Simulation of connecting to satellite
       setTimeout(() => {
         setIsLoginLoading(false);
-        onLogin(username);
+        onLogin(matched.user);
       }, 2500);
     } else {
       setError('Invalid username or password');

@@ -21,6 +21,8 @@ export interface PredictAreaMapCardProps {
   cropColors?: Partial<Record<CropSelectionKey, string>>;
   selectedCrops: CropSelectionState;
   onToggleCrop: (crop: CropSelectionKey) => void;
+  /** When set, only these crops appear in the list */
+  allowedCropKeys?: CropSelectionKey[] | null;
 }
 
 const PredictAreaMapCard: React.FC<PredictAreaMapCardProps> = ({
@@ -30,10 +32,16 @@ const PredictAreaMapCard: React.FC<PredictAreaMapCardProps> = ({
   cropColors = {},
   selectedCrops,
   onToggleCrop,
+  allowedCropKeys = null,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
-  const rows = CROP_SELECTION_OPTIONS.map((crop, index) => ({
+  const options =
+    allowedCropKeys && allowedCropKeys.length > 0
+      ? CROP_SELECTION_OPTIONS.filter((o) => allowedCropKeys.includes(o.key))
+      : CROP_SELECTION_OPTIONS;
+
+  const rows = options.map((crop, index) => ({
     key: crop.key,
     index: index + 1,
     name: crop.label,

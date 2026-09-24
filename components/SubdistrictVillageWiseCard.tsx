@@ -12,6 +12,12 @@ export interface SubdistrictVillageWiseCardProps {
   loading: boolean;
   regionLabel: string;
   rows: VillageCropAreaRow[];
+  /** When set, only rows whose crop matches these keys/labels are shown */
+  allowedCropKeys?: string[] | null;
+  /** Card title — default "Village crop area" */
+  title?: string;
+  /** First column header — default "Village" */
+  regionColumnLabel?: string;
 }
 
 function formatAreaHa(ha: number): string {
@@ -39,18 +45,33 @@ const SubdistrictVillageWiseCard: React.FC<SubdistrictVillageWiseCardProps> = ({
   loading,
   regionLabel,
   rows,
+  allowedCropKeys = null,
+  title = 'Village crop area',
+  regionColumnLabel = 'Village',
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
-  const sortedRows = useMemo(
-    () =>
-      [...rows].sort((a, b) => {
-        const v = a.village.localeCompare(b.village);
-        if (v !== 0) return v;
-        return a.crop.localeCompare(b.crop);
-      }),
-    [rows]
-  );
+  const sortedRows = useMemo(() => {
+    const allowed =
+      allowedCropKeys && allowedCropKeys.length > 0
+        ? new Set(allowedCropKeys.map((k) => k.trim().toLowerCase()))
+        : null;
+    const filtered = allowed
+      ? rows.filter((r) => {
+          const crop = r.crop.trim().toLowerCase();
+          if (allowed.has(crop)) return true;
+          const opt = CROP_SELECTION_OPTIONS.find(
+            (o) => o.key.toLowerCase() === crop || o.label.toLowerCase() === crop
+          );
+          return opt ? allowed.has(opt.key.toLowerCase()) || allowed.has(opt.label.toLowerCase()) : false;
+        })
+      : rows;
+    return [...filtered].sort((a, b) => {
+      const v = a.village.localeCompare(b.village);
+      if (v !== 0) return v;
+      return a.crop.localeCompare(b.crop);
+    });
+  }, [rows, allowedCropKeys]);
 
   return (
     <div
@@ -61,7 +82,7 @@ const SubdistrictVillageWiseCard: React.FC<SubdistrictVillageWiseCardProps> = ({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="text-[15px] font-bold leading-tight text-gray-900">
-              Village crop area
+              {title}
             </h3>
             <p className="mt-0.5 truncate text-[13px] text-gray-700" title={regionLabel}>
               {regionLabel || '—'}
@@ -94,12 +115,12 @@ const SubdistrictVillageWiseCard: React.FC<SubdistrictVillageWiseCardProps> = ({
               <span className="text-sm text-gray-800">Loading…</span>
             </div>
           ) : sortedRows.length === 0 ? (
-            <p className="py-3 text-center text-sm text-gray-600">No village crop data</p>
+            <p className="py-3 text-center text-sm text-gray-600">No {regionColumnLabel.toLowerCase()} crop data</p>
           ) : (
             <table className="w-full table-fixed text-left text-[13px] text-gray-900">
               <thead>
                 <tr>
-                  <th className="w-[38%] py-1.5 pl-0.5 pr-2 font-semibold text-gray-800">Village</th>
+                  <th className="w-[38%] py-1.5 pl-0.5 pr-2 font-semibold text-gray-800">{regionColumnLabel}</th>
                   <th className="w-[34%] py-1.5 pr-2 font-semibold text-gray-800">Crop</th>
                   <th className="w-[28%] py-1.5 pr-0.5 text-right font-semibold text-gray-800">Area</th>
                 </tr>
