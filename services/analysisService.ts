@@ -28,6 +28,23 @@ const getBaseUrl = (): string => {
   return RAILWAY_HOST;
 };
 
+/**
+ * Leaflet XYZ URL for Earth Engine or the classwise STAC tiles.
+ * Relative `/classwise-tiles/...` paths are prefixed with the API base so the map
+ * hits the backend (in dev, the Vite `/railway` proxy) instead of the frontend origin.
+ */
+export function resolveMapTileUrl(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  const clean = url.trim();
+  if (!clean.includes('{z}') || !clean.includes('{x}') || !clean.includes('{y}')) return null;
+  if (clean.includes('earthengine.googleapis.com')) return clean;
+  const marker = '/classwise-tiles/';
+  const idx = clean.indexOf(marker);
+  if (idx === -1) return null;
+  if (/^https?:\/\//i.test(clean)) return clean;
+  return `${getBaseUrl()}${clean.slice(idx)}`;
+}
+
 /** GET with one retry on gateway/server errors (common when backend is busy). */
 const getJsonWithRetry = async (
   url: string,

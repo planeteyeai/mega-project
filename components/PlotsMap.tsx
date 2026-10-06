@@ -2,13 +2,18 @@ import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Polygon, Popup, Tooltip, useMap } from 'react-leaflet';
 import { Coordinate, Plot, LeafletCoordinate } from '../types';
 import L from 'leaflet';
-import { isFieldPlotId, type WindDirectResponse } from '../services/analysisService';
+import { isFieldPlotId, resolveMapTileUrl, type WindDirectResponse } from '../services/analysisService';
 import WindFlowOverlay from './WindFlowOverlay';
 
 const GEE_CLIP_PANE = 'gee-clipped';
 
 const isGeeXyzUrl = (url: string | null | undefined): url is string =>
   !!url && url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
+
+/** Absolute Leaflet URL. Classwise STAC paths are prefixed with the API base. */
+const leafletTileUrl = (url: string): string => resolveMapTileUrl(url) ?? url;
+
+const isClasswiseTile = (url: string): boolean => url.includes('/classwise-tiles/');
 
 const plotIsSelected = (plot: Plot, selectedPlotId: string | null): boolean => {
   if (!selectedPlotId) return false;
@@ -126,18 +131,20 @@ const ClippedGeeTileLayer: React.FC<{ url: string; boundary: Coordinate[] }> = (
     return null;
   }
 
+  const src = leafletTileUrl(url);
+  const classwise = isClasswiseTile(src);
   return (
     <TileLayer
-      url={url}
+      url={src}
       pane={GEE_CLIP_PANE}
       maxZoom={18}
-      maxNativeZoom={15}
+      maxNativeZoom={classwise ? 18 : 15}
       opacity={0.92}
       zIndex={350}
       updateWhenZooming={false}
       updateWhenIdle={true}
       keepBuffer={2}
-      attribution="Google Earth Engine"
+      attribution={classwise ? 'Sentinel (AWS STAC)' : 'Google Earth Engine'}
     />
   );
 };
@@ -399,17 +406,17 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
             />
           )}
           {/* Village/district tiles — hide while a field is selected so the overlay stays inside the plot */}
-          {!clipTileToSelectedField && tileUrl && (
+          {!clipTileToSelectedField && tileUrl && isGeeXyzUrl(tileUrl) && (
             <TileLayer
-              url={tileUrl}
+              url={leafletTileUrl(tileUrl)}
               maxZoom={18}
-              maxNativeZoom={15}
+              maxNativeZoom={isClasswiseTile(leafletTileUrl(tileUrl)) ? 18 : 15}
               opacity={0.65}
               zIndex={100}
               updateWhenZooming={false}
               updateWhenIdle={true}
               keepBuffer={2}
-              attribution="Google Earth Engine"
+              attribution={isClasswiseTile(leafletTileUrl(tileUrl)) ? 'Sentinel (AWS STAC)' : 'Google Earth Engine'}
             />
           )}
           {Object.entries(allPlotsTileUrls).map(([plotId, url]) => {
@@ -423,19 +430,21 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
             if (clipTileToSelectedField && !isWaterClassOverlay) {
               return null;
             }
+            const src = leafletTileUrl(url);
+            const classwise = isClasswiseTile(src);
             return (
               <TileLayer
-                key={isWaterClassOverlay ? `tile-water-class-${url.slice(-40)}` : `tile-${plotId}`}
-                url={url}
+                key={isWaterClassOverlay ? `tile-water-class-${src.slice(-40)}` : `tile-${plotId}`}
+                url={src}
                 maxZoom={18}
-                maxNativeZoom={15}
+                maxNativeZoom={classwise ? 18 : 15}
                 minZoom={0}
                 opacity={isWaterClassOverlay ? 0.78 : 0.6}
                 zIndex={isWaterClassOverlay ? 2500 : 1000}
                 updateWhenZooming={false}
                 updateWhenIdle={true}
                 keepBuffer={2}
-                attribution="Google Earth Engine"
+                attribution={classwise ? 'Sentinel (AWS STAC)' : 'Google Earth Engine'}
                 crossOrigin={true}
                 errorTileUrl=""
               />

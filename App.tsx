@@ -98,7 +98,8 @@ import {
   PestHierarchyResponse,
   PestHierarchyChild,
   PestStoredResponse,
-  PestStoredItem
+  PestStoredItem,
+  resolveMapTileUrl,
 } from './services/analysisService';
 import { Coordinate } from './types';
 import { Loader2, AlertCircle, Layers, Home, LogOut, Eye, EyeOff, Sprout, Droplets, Droplet, Bug, Waves, Trees, Wind, Thermometer, LineChart as LineChartIcon, BarChart3, Download, FileText, FileSpreadsheet, ChevronLeft, ChevronRight, Columns, Maximize2, ChevronUp, ChevronDown, Move, TrendingUp, Globe2 } from 'lucide-react';
@@ -146,10 +147,10 @@ function waterClasswiseToTileUrlMap(classwise: unknown): Record<string, string> 
   const out: Record<string, string> = {};
   if (!Array.isArray(classwise)) return out;
   classwise.forEach((c: any) => {
-    const url = c?.tile_url;
-    if (!url || typeof url !== 'string' || !url.includes('earthengine.googleapis.com')) return;
+    const url = resolveMapTileUrl(c?.tile_url);
+    if (!url) return;
     const id = c.class_id != null ? String(c.class_id) : String(c.class_name || 'class').replace(/\s+/g, '-');
-    out[`wu-${id}`] = url.trim();
+    out[`wu-${id}`] = url;
   });
   return out;
 }
@@ -3316,7 +3317,7 @@ const App: React.FC = () => {
                 total_area_hectare: pestResponse.total_area_ha ?? 0,
               };
               setAllPlotsAnalysisData((prev) => ({ ...prev, pest: pestSummary }));
-              const currentTile = pestResponse.plots?.[0]?.properties?.tile_url ?? null;
+              const currentTile = resolveMapTileUrl(pestResponse.plots?.[0]?.properties?.tile_url);
               if (currentTile) {
                 setPestTileUrl(currentTile);
                 setAllPlotsTileUrls((prev) => ({ ...prev, pest: currentTile }));
@@ -3456,8 +3457,8 @@ const App: React.FC = () => {
                             `plot-${index}`;
               const tileUrl = plot.properties?.tile_url || plot.tile_url;
               if (tileUrl) {
-                const cleanTileUrl = String(tileUrl).trim();
-                if (cleanTileUrl && cleanTileUrl.includes('earthengine.googleapis.com')) {
+                const cleanTileUrl = resolveMapTileUrl(tileUrl);
+                if (cleanTileUrl) {
                   tileUrlsMap[plotId] = cleanTileUrl;
                   break;
                 }
@@ -4630,8 +4631,8 @@ const App: React.FC = () => {
               const tileUrl = plot.properties?.tile_url || plot.tile_url;
               
               if (tileUrl) {
-                const cleanTileUrl = String(tileUrl).trim();
-                if (cleanTileUrl && cleanTileUrl.includes('earthengine.googleapis.com')) {
+                const cleanTileUrl = resolveMapTileUrl(tileUrl);
+                if (cleanTileUrl) {
                   tileUrlsMap[plotId] = cleanTileUrl;
                 }
               }
@@ -4992,8 +4993,8 @@ const App: React.FC = () => {
               const tileUrl = plot.properties?.tile_url || plot.tile_url;
               
               if (tileUrl) {
-                const cleanTileUrl = String(tileUrl).trim();
-                if (cleanTileUrl && cleanTileUrl.includes('earthengine.googleapis.com')) {
+                const cleanTileUrl = resolveMapTileUrl(tileUrl);
+                if (cleanTileUrl) {
                   tileUrlsMap[plotId] = cleanTileUrl;
                 }
               }
@@ -5550,7 +5551,7 @@ const App: React.FC = () => {
     }));
 
     // Update map tile_url for this month (overall pest tile; stored can have tile in .tile_url or .features[0].properties.tile_url)
-    const tileForMonth = resp.tile_url ?? resp.features?.[0]?.properties?.tile_url;
+    const tileForMonth = resolveMapTileUrl(resp.tile_url ?? resp.features?.[0]?.properties?.tile_url);
     if (tileForMonth) {
       setPestTileUrl(tileForMonth);
       setAllPlotsTileUrls(prev => ({ ...prev, pest: tileForMonth }));
@@ -5608,8 +5609,9 @@ const App: React.FC = () => {
     }));
     // Support both features[] and single feature (e.g. stored 2026-03 has response_data.feature)
     const feat = (rd.features && rd.features[0]) ? rd.features[0] : rd.feature;
-    if (feat?.properties?.tile_url) {
-      setAllPlotsTileUrls((prev) => ({ ...prev, [feat.properties?.plot_id || 'growth']: feat.properties.tile_url }));
+    const growthTile = resolveMapTileUrl(feat?.properties?.tile_url);
+    if (growthTile) {
+      setAllPlotsTileUrls((prev) => ({ ...prev, [feat.properties?.plot_id || 'growth']: growthTile }));
       setShowTileLayers(true);
     }
     // Keep boundary visible when switching stored month: set allPlots from feature geometry if present
@@ -5665,13 +5667,9 @@ const App: React.FC = () => {
         `plot-${index}`;
       const tileUrl = plot.properties?.tile_url || plot.tile_url;
 
-      if (
-        Object.keys(tileUrlsMap).length === 0 &&
-        tileUrl &&
-        typeof tileUrl === 'string' &&
-        tileUrl.includes('earthengine.googleapis.com')
-      ) {
-        tileUrlsMap[String(plotId)] = tileUrl.trim();
+      const resolvedTile = resolveMapTileUrl(tileUrl);
+      if (Object.keys(tileUrlsMap).length === 0 && resolvedTile) {
+        tileUrlsMap[String(plotId)] = resolvedTile;
       }
 
       // Geometry → boundary for map
@@ -5762,8 +5760,9 @@ const App: React.FC = () => {
     }));
 
     // Update map tile_url for this month (overall pest tile)
-    if (resp.tile_url) {
-      setLeftAllPlotsTileUrls({ pest: resp.tile_url });
+    const leftPestTile = resolveMapTileUrl(resp.tile_url);
+    if (leftPestTile) {
+      setLeftAllPlotsTileUrls({ pest: leftPestTile });
       setLeftShowTileLayers(true);
     }
 
@@ -5818,8 +5817,9 @@ const App: React.FC = () => {
     }));
 
     // Update map tile_url for this month (overall pest tile)
-    if (resp.tile_url) {
-      setRightAllPlotsTileUrls({ pest: resp.tile_url });
+    const rightPestTile = resolveMapTileUrl(resp.tile_url);
+    if (rightPestTile) {
+      setRightAllPlotsTileUrls({ pest: rightPestTile });
       setRightShowTileLayers(true);
     }
 
@@ -6199,7 +6199,7 @@ const App: React.FC = () => {
           value: Number(c.area_hectares ?? 0),
           percentage: Number(c.percentage ?? 0),
           color: rawColor || fallback,
-          tileUrl: c.tile_url ?? undefined,
+          tileUrl: resolveMapTileUrl(c.tile_url) ?? undefined,
         });
       });
     } else if (sideActiveTab === 'growth') {
@@ -6236,7 +6236,7 @@ const App: React.FC = () => {
             value: Number(node.total_area_ha ?? 0),
             percentage: Number(node.percentage ?? 0),
             color: pestColorForKey(k),
-            tileUrl: node.tile_url ?? undefined,
+            tileUrl: resolveMapTileUrl(node.tile_url) ?? undefined,
             pestKey: k,
           });
         });
@@ -6286,18 +6286,19 @@ const App: React.FC = () => {
   const handleAreaCardClick = (side: 'left' | 'right', item: AreaCardRow) => {
     const currentTab = getActiveTab(side);
     if (currentTab === 'pest') {
-      if (item.tileUrl != null) {
-        setPestTileUrl(item.tileUrl);
+      const pestTile = resolveMapTileUrl(item.tileUrl);
+      if (pestTile) {
+        setPestTileUrl(pestTile);
         if (splitScreenMode) {
           if (side === 'left') {
-            setLeftAllPlotsTileUrls({ pest: item.tileUrl });
+            setLeftAllPlotsTileUrls({ pest: pestTile });
             setLeftShowTileLayers(true);
           } else {
-            setRightAllPlotsTileUrls({ pest: item.tileUrl });
+            setRightAllPlotsTileUrls({ pest: pestTile });
             setRightShowTileLayers(true);
           }
         } else {
-          setAllPlotsTileUrls((prev) => withLstTilePreserved(prev, { pest: item.tileUrl! }));
+          setAllPlotsTileUrls((prev) => withLstTilePreserved(prev, { pest: pestTile }));
           setShowTileLayers(true);
         }
       }
@@ -6313,10 +6314,11 @@ const App: React.FC = () => {
       }
       return;
     }
-    if (['growth', 'water', 'soil'].includes(currentTab || '') && item.tileUrl != null) {
+    const classTile = resolveMapTileUrl(item.tileUrl);
+    if (['growth', 'water', 'soil'].includes(currentTab || '') && classTile) {
       const overlayKey = currentTab === 'water' ? WATER_UPTAKE_CLASS_TILE_KEY : `${currentTab}Class`;
       const apply = (prev: Record<string, string>) =>
-        withLstTilePreserved(prev, { [overlayKey]: item.tileUrl! });
+        withLstTilePreserved(prev, { [overlayKey]: classTile });
       if (splitScreenMode) {
         if (side === 'left') {
           setLeftAllPlotsTileUrls(apply);
@@ -9596,9 +9598,10 @@ const App: React.FC = () => {
                         // Focus this child in the time-series graph
                         setSelectedPestChildSeries(childKey);
                         setShowPestSeries(true);
-                        if (child.tile_url) {
-                          setPestTileUrl(child.tile_url);
-                          setAllPlotsTileUrls(prev => ({ ...prev, pest: child.tile_url }));
+                        const childTile = resolveMapTileUrl(child.tile_url);
+                        if (childTile) {
+                          setPestTileUrl(childTile);
+                          setAllPlotsTileUrls(prev => ({ ...prev, pest: childTile }));
                           setShowTileLayers(true);
                         }
                       }}
@@ -9661,8 +9664,9 @@ const App: React.FC = () => {
                           // Focus this child in the time-series graph
                           setSelectedPestChildSeries(childKey);
                           setLeftShowPestSeries(true);
-                          if (child.tile_url) {
-                            setLeftAllPlotsTileUrls(prev => ({ ...prev, pest: child.tile_url }));
+                          const childTile = resolveMapTileUrl(child.tile_url);
+                          if (childTile) {
+                            setLeftAllPlotsTileUrls(prev => ({ ...prev, pest: childTile }));
                             setLeftShowTileLayers(true);
                           }
                         }}
@@ -11374,8 +11378,9 @@ const App: React.FC = () => {
                             // Focus this child in the time-series graph
                             setSelectedPestChildSeries(childKey);
                             setRightShowPestSeries(true);
-                            if (child.tile_url) {
-                              setRightAllPlotsTileUrls(prev => ({ ...prev, pest: child.tile_url }));
+                            const childTile = resolveMapTileUrl(child.tile_url);
+                            if (childTile) {
+                              setRightAllPlotsTileUrls(prev => ({ ...prev, pest: childTile }));
                               setRightShowTileLayers(true);
                             }
                           }}
