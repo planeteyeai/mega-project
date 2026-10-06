@@ -1437,6 +1437,104 @@ const App: React.FC = () => {
     XLSX.writeFile(wb, `water-uptake-data-${Date.now()}.xlsx`);
   };
 
+  const CROP_AREA_EXCEL_ORDER = ['Sugarcane', 'Jawar', 'Soyabean', 'Mango', 'Banana'];
+
+  const downloadCropAreaLevelExcel = (level: 'district' | 'subdistrict' | 'village') => {
+    const month = predictAreaMonthInput.trim();
+    const district = selectedDistrict || '';
+    const subdistrict = selectedSubdistrict || '';
+    const slug = (value: string) => value.trim().replace(/[^\w.-]+/g, '-') || 'export';
+
+    const writeSheet = (
+      sheetRows: (string | number)[][],
+      sheetName: string,
+      filename: string,
+      colWidths: number[]
+    ) => {
+      const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+      ws['!cols'] = colWidths.map((wch) => ({ wch }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+      XLSX.writeFile(wb, filename);
+    };
+
+    if (level === 'district') {
+      if (!trendCropAreaTotals.length) return;
+      const byLabel = new Map(trendCropAreaTotals.map((row) => [row.label, Number(row.ha) || 0]));
+      const labels = [
+        ...CROP_AREA_EXCEL_ORDER.filter((crop) => byLabel.has(crop)),
+        ...trendCropAreaTotals.map((row) => row.label).filter((label) => !CROP_AREA_EXCEL_ORDER.includes(label)),
+      ];
+      const sheetRows: (string | number)[][] = [
+        ['District Crop Area'],
+        ['Level', 'District'],
+        ['District', district],
+        ['Month', month],
+        ['Unit', 'ha'],
+        [],
+        ['Crop', 'Area (ha)'],
+      ];
+      let total = 0;
+      labels.forEach((label) => {
+        const ha = Number((byLabel.get(label) ?? 0).toFixed(2));
+        total += ha;
+        sheetRows.push([label, ha]);
+      });
+      sheetRows.push(['Total', Number(total.toFixed(2))]);
+      writeSheet(
+        sheetRows,
+        'District',
+        `District-Crop-Area-${slug(district)}-${slug(month)}.xlsx`,
+        [22, 16]
+      );
+      return;
+    }
+
+    const isVillage = level === 'village';
+    const source = isVillage ? trendVillageCropArea : trendCropAreaByRegion;
+    const series = isVillage ? trendVillageCropAreaKeys : trendCropAreaRegionKeys;
+    if (!source.length || !series.length) return;
+
+    const cropCols = [
+      ...CROP_AREA_EXCEL_ORDER.filter((crop) => series.includes(crop)),
+      ...series.filter((crop) => !CROP_AREA_EXCEL_ORDER.includes(crop)),
+    ];
+    const placeHeader = isVillage ? 'Village' : 'Subdistrict';
+    const sheetRows: (string | number)[][] = [
+      [isVillage ? 'Village Crop Area' : 'Subdistrict Crop Area'],
+      ['Level', isVillage ? 'Village' : 'Subdistrict'],
+      ['District', district],
+      ...(isVillage ? [['Subdistrict', subdistrict] as (string | number)[]] : []),
+      ['Month', month],
+      ['Unit', 'ha'],
+      [],
+      [placeHeader, ...cropCols.map((crop) => `${crop} (ha)`), 'Total (ha)'],
+    ];
+    const colTotals = cropCols.map(() => 0);
+    let grand = 0;
+    source.forEach((row) => {
+      const values = cropCols.map((crop) => {
+        const amount = Number(row[crop]);
+        return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0;
+      });
+      const rowTotal = Number(values.reduce((sum, value) => sum + value, 0).toFixed(2));
+      values.forEach((value, index) => {
+        colTotals[index] += value;
+      });
+      grand += rowTotal;
+      sheetRows.push([String(row.label ?? ''), ...values, rowTotal]);
+    });
+    sheetRows.push(['Total', ...colTotals.map((value) => Number(value.toFixed(2))), Number(grand.toFixed(2))]);
+    writeSheet(
+      sheetRows,
+      isVillage ? 'Village' : 'Subdistrict',
+      isVillage
+        ? `Village-Crop-Area-${slug(district)}-${slug(subdistrict)}-${slug(month)}.xlsx`
+        : `Subdistrict-Crop-Area-${slug(district)}-${slug(month)}.xlsx`,
+      [28, ...cropCols.map(() => 16), 14]
+    );
+  };
+
   const downloadChartExcel = () => {
     try {
       if (showGraphPage) {
@@ -8624,8 +8722,23 @@ const App: React.FC = () => {
                           ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className={`rounded-lg border p-4 min-h-[360px] ${isDarkMode ? 'border-gray-700 bg-gray-800/80' : 'border-emerald-100 bg-white shadow-sm'}`}>
-                                <div className={`text-base font-bold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
-                                  Crop area totals (ha)
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <div className={`text-base font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
+                                    District Crop Area(ha)
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadCropAreaLevelExcel('district')}
+                                    disabled={trendCropAreaTotals.length === 0}
+                                    className={`p-1.5 rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                      isDarkMode
+                                        ? 'border-gray-600 text-gray-200 hover:bg-gray-700'
+                                        : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                    }`}
+                                    title="Download district crop area Excel"
+                                  >
+                                    <Download size={16} />
+                                  </button>
                                 </div>
                                 {trendCropAreaTotals.length > 0 ? (
                                   <div className="h-[300px]">
@@ -8650,8 +8763,23 @@ const App: React.FC = () => {
                                 )}
                               </div>
                               <div className={`rounded-lg border p-4 min-h-[360px] ${isDarkMode ? 'border-gray-700 bg-gray-800/80' : 'border-emerald-100 bg-white shadow-sm'}`}>
-                                <div className={`text-base font-bold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
-                                  {trendCropAreaRegionTitle} (ha)
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <div className={`text-base font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
+                                    {trendCropAreaRegionTitle} (ha)
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadCropAreaLevelExcel('subdistrict')}
+                                    disabled={trendCropAreaByRegion.length === 0 || trendCropAreaRegionKeys.length === 0}
+                                    className={`p-1.5 rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                      isDarkMode
+                                        ? 'border-gray-600 text-gray-200 hover:bg-gray-700'
+                                        : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                    }`}
+                                    title="Download subdistrict crop area Excel"
+                                  >
+                                    <Download size={16} />
+                                  </button>
                                 </div>
                                 {trendCropAreaByRegion.length > 0 && trendCropAreaRegionKeys.length > 0 ? (
                                   <div className="h-[300px]">
@@ -8690,8 +8818,23 @@ const App: React.FC = () => {
                           )}
                           {selectedSubdistrict && (
                             <div className={`rounded-lg border p-4 min-h-[360px] ${isDarkMode ? 'border-gray-700 bg-gray-800/80' : 'border-emerald-100 bg-white shadow-sm'}`}>
-                              <div className={`text-base font-bold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
-                                Village crop area (ha) · {selectedSubdistrict}
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <div className={`text-base font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
+                                  Village crop area (ha) · {selectedSubdistrict}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => downloadCropAreaLevelExcel('village')}
+                                  disabled={trendVillageCropArea.length === 0 || trendVillageCropAreaKeys.length === 0}
+                                  className={`p-1.5 rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                    isDarkMode
+                                      ? 'border-gray-600 text-gray-200 hover:bg-gray-700'
+                                      : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                  }`}
+                                  title="Download village crop area Excel"
+                                >
+                                  <Download size={16} />
+                                </button>
                               </div>
                               {trendVillageCropAreaLoading ? (
                                 <div className="h-[300px] flex items-center justify-center gap-3">
