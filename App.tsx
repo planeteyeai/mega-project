@@ -19,6 +19,8 @@ import BuildingLayerCard from './components/BuildingLayerCard';
 import PercentageAreaPieChart from './components/PercentageAreaPieChart';
 import VillageCropAreaPopup from './components/VillageCropAreaPopup';
 import PredictAreaMapCard from './components/PredictAreaMapCard';
+import MaharashtraCropAreaCard from './components/MaharashtraCropAreaCard';
+import StateCropAreaPage from './components/StateCropAreaPage';
 import SubdistrictVillageWiseCard from './components/SubdistrictVillageWiseCard';
 import TopNavBar from './components/TopNavBar';
 import { LoginPage } from './components/LoginPage';
@@ -45,7 +47,9 @@ import {
   fetchPredictAreaSubdistrict,
   fetchPredictAreaStoredVizProgressive,
   fetchPredictAreaCropAreas,
+  fetchMaharashtraCropwise,
   type PredictAreaCropAreasResponse,
+  type MaharashtraCropwiseResponse,
   loadPredictCropFieldPlots,
   loadSubdistrictPredictCropFieldPlots,
   extractPredictCropFieldPlotsFromViz,
@@ -474,6 +478,9 @@ const App: React.FC = () => {
   const [predictCropAreaLoading, setPredictCropAreaLoading] = useState<boolean>(false);
   /** YYYY-MM for predict-area — empty until user picks a month in the UI */
   const [predictAreaMonthInput, setPredictAreaMonthInput] = useState('');
+  const [maharashtraCropwise, setMaharashtraCropwise] = useState<MaharashtraCropwiseResponse | null>(null);
+  const [maharashtraCropwiseLoading, setMaharashtraCropwiseLoading] = useState(false);
+  const [maharashtraCropwiseError, setMaharashtraCropwiseError] = useState<string | null>(null);
   /** Month confirmed from API `month` or last request (for display). */
   const [predictAreaDataMonth, setPredictAreaDataMonth] = useState<string | null>(null);
   /** Field polygons from predict-area (numeric field_id) for crop boundary coloring */
@@ -630,6 +637,11 @@ const App: React.FC = () => {
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(true);
   const [showGraphPage, setShowGraphPage] = useState<boolean>(false);
   const [showAnalysisTrendsPage, setShowAnalysisTrendsPage] = useState<boolean>(false);
+  const [showStatePage, setShowStatePage] = useState<boolean>(false);
+  const [statePageMonth, setStatePageMonth] = useState(() => getCurrentPredictAreaMonth());
+  const [stateCropwise, setStateCropwise] = useState<MaharashtraCropwiseResponse | null>(null);
+  const [stateCropwiseLoading, setStateCropwiseLoading] = useState(false);
+  const [stateCropwiseError, setStateCropwiseError] = useState<string | null>(null);
   const [analysisTrendsLoading, setAnalysisTrendsLoading] = useState<boolean>(false);
   /** District crop-areas charts on the analysis-trends page */
   const [trendCropAreaLoading, setTrendCropAreaLoading] = useState<boolean>(false);
@@ -3702,6 +3714,75 @@ const App: React.FC = () => {
     }
   }, [activeTab, selectedDistrict, selectedSubdistrict, selectedVillage, selectedPlotId, selectedAnalysisFieldId]); // Fetch when tab, location, or selected field plot changes
 
+  // Map overview: Maharashtra state crop area before a district is selected
+  useEffect(() => {
+    if (showGraphPage || showAnalysisTrendsPage || showStatePage || splitScreenMode || selectedDistrict) {
+      return;
+    }
+    const month = predictAreaMonthInput.trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      setMaharashtraCropwise(null);
+      setMaharashtraCropwiseError(null);
+      setMaharashtraCropwiseLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMaharashtraCropwiseLoading(true);
+    setMaharashtraCropwiseError(null);
+    fetchMaharashtraCropwise(month, 'sugarcane')
+      .then((data) => {
+        if (!cancelled) setMaharashtraCropwise(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setMaharashtraCropwise(null);
+          setMaharashtraCropwiseError(
+            err instanceof Error ? err.message : 'Failed to load Maharashtra crop area'
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMaharashtraCropwiseLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showGraphPage, showAnalysisTrendsPage, showStatePage, splitScreenMode, selectedDistrict, predictAreaMonthInput]);
+
+  useEffect(() => {
+    if (!showStatePage) return;
+    const month = statePageMonth.trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      setStateCropwise(null);
+      setStateCropwiseError(null);
+      setStateCropwiseLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setStateCropwiseLoading(true);
+    setStateCropwiseError(null);
+    fetchMaharashtraCropwise(month, 'sugarcane')
+      .then((data) => {
+        if (!cancelled) setStateCropwise(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setStateCropwise(null);
+          setStateCropwiseError(err instanceof Error ? err.message : 'Failed to load state crop area');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setStateCropwiseLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showStatePage, statePageMonth]);
+
   // Trends page: fetch stored time series from /api-stored/* GET endpoints
   useEffect(() => {
     if (!showAnalysisTrendsPage || !selectedDistrict || splitScreenMode) return;
@@ -6511,6 +6592,16 @@ const App: React.FC = () => {
   };
 
   // Show login page if not authenticated
+  const openStatePage = () => {
+    const selected = predictAreaMonthInput.trim();
+    setShowStatePage(true);
+    setShowGraphPage(false);
+    setShowAnalysisTrendsPage(false);
+    setFullscreenAnalysisTrendCard(null);
+    setShowGraphFrequencyDropdown(false);
+    setStatePageMonth(/^\d{4}-\d{2}$/.test(selected) ? selected : getCurrentPredictAreaMonth());
+  };
+
   if (!isAuthenticated) {
     return <LoginPage onLogin={handleLogin} />;
   }
@@ -7077,20 +7168,23 @@ const App: React.FC = () => {
         <>
       <TopNavBar
         isDarkMode={isDarkMode}
-        activeView={showGraphPage || showAnalysisTrendsPage ? 'dashboard' : 'map'}
+        activeView={showStatePage ? 'state' : showGraphPage || showAnalysisTrendsPage ? 'dashboard' : 'map'}
         onMapExplore={() => {
           setShowGraphPage(false);
           setShowAnalysisTrendsPage(false);
+          setShowStatePage(false);
           setFullscreenAnalysisTrendCard(null);
           setShowGraphFrequencyDropdown(false);
         }}
         onDashboard={() => {
           setShowGraphPage(true);
           setShowAnalysisTrendsPage(false);
+          setShowStatePage(false);
           setFullscreenAnalysisTrendCard(null);
           setShowGraphFrequencyDropdown(true);
           setSidebarVisible(true);
         }}
+        onState={openStatePage}
         weatherData={weatherDailyData}
         weatherLoading={weatherDailyLoading}
         weatherError={weatherDailyError}
@@ -7623,6 +7717,7 @@ const App: React.FC = () => {
             : !isMapFullscreen &&
               !showGraphPage &&
               !showAnalysisTrendsPage &&
+              !showStatePage &&
               ['growth', 'water', 'soil', 'pest'].includes(getActiveTab('left') || '')
               ? 'flex flex-col md:flex-row md:items-stretch'
               : 'flex flex-col'
@@ -7637,7 +7732,7 @@ const App: React.FC = () => {
               ? 'flex-1 w-1/2 border-r border-gray-700'
               : isMapFullscreen
                 ? 'flex-1 min-h-[calc(100vh-140px)]'
-                : (showGraphPage || showAnalysisTrendsPage)
+                : (showGraphPage || showAnalysisTrendsPage || showStatePage)
                   ? 'flex-1 min-h-[calc(100vh-140px)]'
                   : ['growth', 'water', 'soil', 'pest'].includes(getActiveTab('left') || '')
                     ? 'flex-1 min-h-[calc(100vh-140px)] md:border-r md:border-gray-800'
@@ -8925,7 +9020,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {!splitScreenMode && !showGraphPage && !showAnalysisTrendsPage && !sidebarVisible && (
+          {!splitScreenMode && !showGraphPage && !showAnalysisTrendsPage && !showStatePage && !sidebarVisible && (
             <div className="absolute top-3 left-3 z-[1300] flex flex-col gap-2 sm:top-4 sm:left-4">
               <div className="flex items-center gap-2">
               <button
@@ -10028,7 +10123,19 @@ const App: React.FC = () => {
           </div>
           )}
 
-          {!showGraphPage && !showAnalysisTrendsPage && (
+          {showStatePage && (
+            <StateCropAreaPage
+              isDarkMode={isDarkMode}
+              month={statePageMonth}
+              onMonthChange={setStatePageMonth}
+              loading={stateCropwiseLoading}
+              error={stateCropwiseError}
+              data={stateCropwise}
+              sidebarOpen={sidebarVisible}
+            />
+          )}
+
+          {!showGraphPage && !showAnalysisTrendsPage && !showStatePage && (
           <div className="map-surface relative z-0 flex min-h-0 w-full min-w-0 flex-1 flex-col self-stretch">
           {!splitScreenMode && useEarthViewMap ? (
             <EarthView
@@ -10247,6 +10354,58 @@ const App: React.FC = () => {
               ) : null}
             </div>
           ) : null}
+          {!splitScreenMode && !selectedDistrict && (
+            <div
+              className={`pointer-events-none absolute top-4 z-[1300] ${
+                sidebarVisible ? 'left-[17.25rem]' : 'left-4'
+              }`}
+            >
+              <div className="pointer-events-auto">
+                <MaharashtraCropAreaCard
+                  onClick={openStatePage}
+                  loading={maharashtraCropwiseLoading}
+                  error={maharashtraCropwiseError}
+                  stateName={maharashtraCropwise?.state || 'Maharashtra'}
+                  monthLabel={formatPredictAreaMonthLabel(
+                    maharashtraCropwiseLoading
+                      ? predictAreaMonthInput
+                      : maharashtraCropwise?.month || predictAreaMonthInput
+                  )}
+                  unit={maharashtraCropwise?.unit || 'ha'}
+                  crops={Object.entries(maharashtraCropwise?.crop_areas_ha || {})
+                    .filter(([, ha]) => typeof ha === 'number' && !Number.isNaN(ha))
+                    .map(([key, ha]) => ({
+                      key,
+                      ha,
+                      plots:
+                        typeof maharashtraCropwise?.identified_plot_counts?.[key] === 'number'
+                          ? maharashtraCropwise.identified_plot_counts[key]
+                          : null,
+                    }))}
+                  totalHa={
+                    typeof maharashtraCropwise?.total_crop_area_ha === 'number'
+                      ? maharashtraCropwise.total_crop_area_ha
+                      : null
+                  }
+                  totalPlots={
+                    typeof maharashtraCropwise?.total_identified_plots === 'number'
+                      ? maharashtraCropwise.total_identified_plots
+                      : null
+                  }
+                  districtsWithData={
+                    typeof maharashtraCropwise?.districts_with_data === 'number'
+                      ? maharashtraCropwise.districts_with_data
+                      : null
+                  }
+                  districtsCount={
+                    typeof maharashtraCropwise?.districts_count === 'number'
+                      ? maharashtraCropwise.districts_count
+                      : null
+                  }
+                />
+              </div>
+            </div>
+          )}
           {!splitScreenMode && villageCropPopup && (
             <VillageCropAreaPopup
               village={villageCropPopup.village}

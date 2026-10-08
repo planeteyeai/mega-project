@@ -1990,6 +1990,52 @@ export const fetchStoredDistrictsLatest = async (
   });
 };
 
+/** GET /api-stored/maharashtra/cropwise — state rollup of stored village crop area. */
+export interface MaharashtraCropwiseDistrict {
+  district: string;
+  villages_counted?: number;
+  crop_areas_ha?: Record<string, number>;
+  identified_plot_counts?: Record<string, number>;
+  total_crop_area_ha?: number;
+  total_identified_plots?: number;
+  has_data?: boolean;
+}
+
+export interface MaharashtraCropwiseResponse {
+  state: string;
+  month: string;
+  crop_name: string;
+  unit?: string;
+  source?: string;
+  aggregation?: string;
+  districts_count?: number;
+  districts_with_data?: number;
+  crop_areas_ha?: Record<string, number>;
+  identified_plot_counts?: Record<string, number>;
+  total_crop_area_ha?: number;
+  total_identified_plots?: number;
+  districts?: MaharashtraCropwiseDistrict[];
+}
+
+export const fetchMaharashtraCropwise = async (
+  month: string,
+  cropName = 'sugarcane'
+): Promise<MaharashtraCropwiseResponse> => {
+  const params = new URLSearchParams({
+    month: month.trim(),
+  });
+  const crop = cropName.trim();
+  if (crop && crop.toLowerCase() !== 'all') {
+    params.set('crop_name', crop.toLowerCase());
+  }
+  const url = `${getBaseUrl()}/api-stored/maharashtra/cropwise?${params.toString()}`;
+  const response = await getJsonWithRetry(url, { accept: '*/*' });
+  if (!response.ok) {
+    throw new Error(`Maharashtra cropwise API Error: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
 /** Start fetch before login so district splash has data ready. */
 export function preloadStoredDistrictsLatest(month?: string): void {
   const m =

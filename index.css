@@ -588,3 +588,23 @@ html, body {
   text-align: center;
   white-space: normal;
 }
+
+.process-loader-core {
+  background: radial-gradient(circle at 40% 35%, #7ee8dc 0%, #14b8a6 55%, #0f766e 100%);
+}
+
+@keyframes process-loader-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.process-loader-dot {
+  animation: process-loader-dot 0.96s ease-in-out infinite;
+}

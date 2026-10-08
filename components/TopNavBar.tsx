@@ -1,14 +1,15 @@
 import React from 'react';
-import { CloudSun, Droplets, Download, FileSpreadsheet, FileText, Loader2, ArrowLeft, Map, LayoutDashboard, Wind, Thermometer } from 'lucide-react';
+import { CloudSun, Droplets, Download, FileSpreadsheet, FileText, Loader2, ArrowLeft, Map, LayoutDashboard, Landmark, Wind, Thermometer } from 'lucide-react';
 import type { WeatherDailyResponse } from '../services/analysisService';
 
-export type TopNavView = 'map' | 'dashboard';
+export type TopNavView = 'map' | 'dashboard' | 'state';
 
 export interface TopNavBarProps {
   isDarkMode: boolean;
   activeView: TopNavView;
   onMapExplore: () => void;
   onDashboard: () => void;
+  onState: () => void;
   weatherData: WeatherDailyResponse | null;
   weatherLoading: boolean;
   weatherError: string | null;
@@ -48,6 +49,7 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
   activeView,
   onMapExplore,
   onDashboard,
+  onState,
   weatherData,
   weatherLoading,
   weatherError,
@@ -149,6 +151,12 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
             Dashboard
           </span>
         </button>
+        <button type="button" onClick={onState} className={navBtn(activeView === 'state')}>
+          <span className="inline-flex items-center gap-1.5">
+            <Landmark size={15} />
+            State
+          </span>
+        </button>
       </nav>
 
       {/* Right — weather marquee + utilities */}
@@ -223,7 +231,7 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
             </>
           )}
         </div>
-
+{/* 
         <button
           type="button"
           onClick={onBack}
@@ -236,7 +244,7 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
         >
           <ArrowLeft size={18} />
           <span className="hidden sm:inline"></span>
-        </button>
+        </button> */}
       </div>
     </header>
   );
