@@ -309,14 +309,13 @@ export function scaleChildAreaMaps(
 
   cropKeys.forEach((crop) => {
     const rawParts = rawByCrop[crop];
+    const cropRaw = rawParts.reduce((sum, value) => sum + value, 0);
     const scaled =
       totalHa == null
         ? allocateScaled(rawParts, decimals)
-        : allocatePartsToTotal(
-            rawParts,
-            allRaw <= 0 ? totalHa : totalHa * (rawParts.reduce((sum, value) => sum + value, 0) / allRaw),
-            decimals
-          );
+        : cropRaw <= 0 || allRaw <= 0
+          ? rawParts.map(() => 0)
+          : allocatePartsToTotal(rawParts, totalHa * (cropRaw / allRaw), decimals);
     scaled.forEach((ha, index) => {
       scaledChildren[names[index]][crop] = ha;
     });

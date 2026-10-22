@@ -24,9 +24,9 @@ import StateCropAreaPage from './components/StateCropAreaPage';
 import SubdistrictVillageWiseCard from './components/SubdistrictVillageWiseCard';
 import TopNavBar from './components/TopNavBar';
 import { LoginPage } from './components/LoginPage';
-import { 
-  fetchDistricts, 
-  fetchSubdistricts, 
+import {
+  fetchDistricts,
+  fetchSubdistricts,
   fetchVillages,
   parseVillageBoundaryCoordinates,
   villageOutlinePlotId,
@@ -38,7 +38,7 @@ import {
   type VillageItem,
   fetchBoundaryGeoJSON,
   geometryToBoundaryPlots,
-  parseGeometryToCoordinates, 
+  parseGeometryToCoordinates,
   fetchFieldBoundaries,
   fetchFieldBoundariesProgressive,
   fetchVillageSurveyPlots,
@@ -378,11 +378,11 @@ const App: React.FC = () => {
   const [districts, setDistricts] = useState<Array<{district: string; geometry?: any}>>([]);
   const [selectedDistrict, setSelectedDistrict] = useState<string>('');
   const [selectedDistrictData, setSelectedDistrictData] = useState<{district: string; geometry?: any} | null>(null);
-  
+
   // State for subdistricts
   const [subdistricts, setSubdistricts] = useState<Array<{subdistrict: string; geometry?: any}>>([]);
   const [selectedSubdistrict, setSelectedSubdistrict] = useState<string>('');
-  
+
   // State for villages
   const [villages, setVillages] = useState<Array<{village: string; geom_type?: string; coordinates?: any; geometry?: any}>>([]);
   const [selectedVillage, setSelectedVillage] = useState<string>('');
@@ -420,7 +420,7 @@ const App: React.FC = () => {
 
   // State for all plots in selected taluka
   const [allPlots, setAllPlots] = useState<Array<{id: string; area_ha: string; boundary: Coordinate[]}>>([]);
-  
+
   // State for plots in split screen mode (left and right sides)
   const [leftAllPlots, setLeftAllPlots] = useState<Array<{id: string; area_ha: string; boundary: Coordinate[]}>>([]);
   const [rightAllPlots, setRightAllPlots] = useState<Array<{id: string; area_ha: string; boundary: Coordinate[]}>>([]);
@@ -452,14 +452,14 @@ const App: React.FC = () => {
   const [predictAreaByCrop, setPredictAreaByCrop] = useState<Partial<Record<CropSelectionKey, PredictCropLayer>>>({});
   const [cropTileUrl, setCropTileUrl] = useState<string | null>(null);
   const [cropAreaHa, setCropAreaHa] = useState<number | null>(null);
-  
+
   // State for Land Surface Temperature
   const [lstTileUrl, setLstTileUrl] = useState<string | null>(null);
   const [lstLoading, setLstLoading] = useState<boolean>(false);
   const [lstClasswise, setLstClasswise] = useState<LstClassAreaItem[]>([]);
   const [selectedLstClassLabel, setSelectedLstClassLabel] = useState<string | null>(null);
-  
-  
+
+
   // State for GeoJSON plots (e.g. from boundary load; currently unused)
   const [geojsonPlots, setGeojsonPlots] = useState<Array<{id: string; field_id?: string; area_ha: string; boundary: Coordinate[]}>>([]);
   const [geojsonLoading, setGeojsonLoading] = useState<boolean>(false);
@@ -593,7 +593,7 @@ const App: React.FC = () => {
   // State for total area (district/subdistrict/village)
   const [totalAreaHectares, setTotalAreaHectares] = useState<number | null>(null);
   const [totalAreaLoading, setTotalAreaLoading] = useState<boolean>(false);
-  
+
   // State for selected plot area (from GeoJSON)
   const [selectedPlotArea, setSelectedPlotArea] = useState<number | null>(null);
   /** Cadastral plot metadata from village-data API (plotId → owners) */
@@ -1204,7 +1204,7 @@ const App: React.FC = () => {
           yPos += 2;
         }
       }
-      
+
       // Capture chart(s). Indices: rasterize each 6-card chunk separately (stable PDF pages).
       const indicesChunkEls: HTMLElement[] = [];
       for (let i = 0; i < 32; i++) {
@@ -1311,7 +1311,7 @@ const App: React.FC = () => {
           yPos += actualChartHeight + 8;
         }
       }
-      
+
       // Add weather graph if available
       if (weatherElement && showWeatherDaily && weatherDailyData?.daily?.length) {
         // Check if we need a new page - leave more space for text
@@ -1319,23 +1319,23 @@ const App: React.FC = () => {
           pdf.addPage();
           yPos = margin;
         }
-        
+
         // Add weather section title
         pdf.setFontSize(14);
         pdf.setFont('helvetica', 'bold');
         pdf.text('Daily Weather Data', margin, yPos);
         yPos += 8;
-        
+
         // Capture weather chart
         const weatherCanvas = await captureElementForPdf(weatherElement, {});
         const weatherImgData = weatherCanvas.toDataURL('image/png');
         const weatherImgHeight = (weatherCanvas.height * contentWidth) / weatherCanvas.width;
-        
+
         // Add weather graph - ensure it doesn't push content off page, leave space for text
         const maxWeatherHeight = pageHeight - yPos - 30; // Leave 30mm for bottom margin and any text
         pdf.addImage(weatherImgData, 'PNG', margin, yPos, contentWidth, Math.min(weatherImgHeight, maxWeatherHeight));
       }
-      
+
       const fileSlug = isIndicesDashboard
         ? `indices-${dashboardIndicesFrequency || 'unset'}`
         : exportTab === 'pest' && (splitScreenMode ? leftSelectedPestCategory : selectedPestCategory)
@@ -1584,7 +1584,7 @@ const App: React.FC = () => {
     try {
       const graphElement = document.getElementById('pest-time-series-graph');
       const chartElement = document.getElementById('weather-daily-chart');
-      
+
       if (!chartElement) {
         alert('Weather chart not found');
         return;
@@ -1606,29 +1606,29 @@ const App: React.FC = () => {
       if (selectedPestCategory && graphElement) {
         yPos = addWrappedText(pdf, `Pest: ${selectedPestCategory.replace(/_/g, ' ')}`, margin, yPos, contentWidth, 6, margin);
         yPos += 4;
-        
+
         // Capture and add pest graph - ensure it doesn't push content off page
         const pestCanvas = await captureElementForPdf(graphElement, {});
         const pestImgData = pestCanvas.toDataURL('image/png');
         const pestImgHeight = (pestCanvas.height * contentWidth) / pestCanvas.width;
-        
+
         const maxPestHeight = pageHeight - yPos - 30; // Leave 30mm for bottom margin and any text
         const actualPestHeight = Math.min(pestImgHeight, maxPestHeight);
         pdf.addImage(pestImgData, 'PNG', margin, yPos, contentWidth, actualPestHeight);
         yPos += actualPestHeight + 10;
       }
-      
+
       // Add weather section title
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.text('Daily Weather Data', margin, yPos);
       yPos += 8;
-      
+
       // Capture weather chart
       const weatherCanvas = await captureElementForPdf(chartElement, {});
       const weatherImgData = weatherCanvas.toDataURL('image/png');
       const weatherImgHeight = (weatherCanvas.height * contentWidth) / weatherCanvas.width;
-      
+
       // Check if we need a new page - leave more space for text
       if (yPos + weatherImgHeight > pageHeight - 100) {
         pdf.addPage();
@@ -1638,11 +1638,11 @@ const App: React.FC = () => {
         pdf.text('Daily Weather Data', margin, yPos);
         yPos += 8;
       }
-      
+
       // Add weather graph - ensure it doesn't push content off page, leave space for text
       const maxWeatherHeight = pageHeight - yPos - 30; // Leave 30mm for bottom margin and any text
       pdf.addImage(weatherImgData, 'PNG', margin, yPos, contentWidth, Math.min(weatherImgHeight, maxWeatherHeight));
-      
+
       pdf.save(`nearlive-crop-monitoring-weather-${Date.now()}.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -1662,7 +1662,7 @@ const App: React.FC = () => {
       worksheetData.push([getLocationString()]);
       worksheetData.push(['Daily Weather Data']);
       worksheetData.push([]);
-      
+
       const headers = ['Date', 'Temp Max (Â°C)', 'Temp Min (Â°C)', 'Rainfall (mm)', 'Wind Max (km/h)'];
       worksheetData.push(headers);
 
@@ -1872,7 +1872,7 @@ const App: React.FC = () => {
         try {
           setLoading(true);
           setError(null);
-          
+
           // Use API for all subdistricts (including Palus)
           const data = await fetchVillages(selectedSubdistrict);
           if (Array.isArray(data)) {
@@ -2271,7 +2271,7 @@ const App: React.FC = () => {
 
         Object.entries(breakdown).forEach(([regionName, cropHaMap]) => {
           Object.entries(cropHaMap || {}).forEach(([crop, area]) => {
-            if (typeof area !== 'number' || Number.isNaN(area)) return;
+            if (typeof area !== 'number' || Number.isNaN(area) || area <= 0) return;
             const wanted = selectedKeys.some(
               (k) => cropResponseKey(k) === crop.toLowerCase() || k.toLowerCase() === crop.toLowerCase()
             );
@@ -2923,7 +2923,7 @@ const App: React.FC = () => {
       cancelled = true;
     };
   }, [selectedDistrict, selectedSubdistrict, selectedVillage]);
-  
+
   // Fetch subdistricts for left side when district is selected (split screen mode)
   useEffect(() => {
     if (splitScreenMode && leftSelectedDistrict) {
@@ -3216,32 +3216,32 @@ const App: React.FC = () => {
          } else switch (activeTab) {
           case 'growth':
               response = await fetchGrowthAnalysis1(
-                selectedDistrict, 
-                selectedSubdistrict || undefined, 
+                selectedDistrict,
+                selectedSubdistrict || undefined,
                 selectedVillage || undefined,
                 selectedFieldId
               );
             break;
           case 'water':
               response = await fetchWaterUptakeAnalysis(
-                selectedDistrict, 
-                selectedSubdistrict || undefined, 
+                selectedDistrict,
+                selectedSubdistrict || undefined,
                 selectedVillage || undefined,
                 selectedFieldId
               );
             break;
           case 'soil':
               response = await fetchSoilMoistureAnalysis(
-                selectedDistrict, 
-                selectedSubdistrict || undefined, 
+                selectedDistrict,
+                selectedSubdistrict || undefined,
                 selectedVillage || undefined,
                 selectedFieldId
               );
             break;
           case 'pest':
               response = await fetchPestDetectionAnalysis(
-                selectedDistrict, 
-                selectedSubdistrict || undefined, 
+                selectedDistrict,
+                selectedSubdistrict || undefined,
                 selectedVillage || undefined,
                 undefined,
                 selectedFieldId
@@ -3249,8 +3249,8 @@ const App: React.FC = () => {
             break;
           case 'waterSource':
               response = await fetchNDWIDetection(
-                selectedDistrict, 
-                selectedSubdistrict || undefined, 
+                selectedDistrict,
+                selectedSubdistrict || undefined,
                 selectedVillage || undefined
               );
             break;
@@ -3428,7 +3428,7 @@ const App: React.FC = () => {
 
           // Handle different response formats
           let plotsArray: any[] = [];
-          
+
           // Format 1: Direct plots array
           if (response.plots && Array.isArray(response.plots)) {
             plotsArray = response.plots;
@@ -3455,17 +3455,17 @@ const App: React.FC = () => {
           else if (responseAny.feature && responseAny.feature.type === 'Feature' && responseAny.feature.geometry) {
             plotsArray = [responseAny.feature];
           }
-          
+
           // Extract plots from response
           if (plotsArray.length > 0) {
             // Collect tile URLs first (before mapping)
             const tileUrlsMap: Record<string, string> = {};
-            
+
             // First pass: one composite GEE tile only (multiple layers cause GEE 429 rate limits)
             for (let index = 0; index < plotsArray.length; index++) {
               const plot = plotsArray[index];
-              const plotId = plot.properties?.plot_id || plot.plot_id || 
-                            plot.properties?.plot_name || plot.plot_name || 
+              const plotId = plot.properties?.plot_id || plot.plot_id ||
+                            plot.properties?.plot_name || plot.plot_name ||
                             `plot-${index}`;
               const tileUrl = plot.properties?.tile_url || plot.tile_url;
               if (tileUrl) {
@@ -3476,24 +3476,24 @@ const App: React.FC = () => {
                 }
               }
             }
-            
+
             // Second pass: Convert plots to map format (only plots with valid coordinates)
             const plotsForMap = plotsArray
               .map((plot, index) => {
                 // Handle both formats: GeoJSON Feature with properties, or direct format
                 // Try multiple ways to get plot_id: plot_id, plot_name, or generate from index
-                const plotId = plot.properties?.plot_id || plot.plot_id || 
-                              plot.properties?.plot_name || plot.plot_name || 
+                const plotId = plot.properties?.plot_id || plot.plot_id ||
+                              plot.properties?.plot_name || plot.plot_name ||
                               `plot-${index}`;
                 const areaAcres = plot.properties?.area_acres || plot.area_acres;
-                
+
                 if (!plotId) {
                   return null;
                 }
-                
+
                 // Extract coordinates from different formats
                 let coordinates: number[][] = [];
-                
+
                 // Format 1: GeoJSON Feature with geometry
                 if (plot.geometry && plot.geometry.coordinates) {
                   const geomCoords = plot.geometry.coordinates;
@@ -3518,24 +3518,24 @@ const App: React.FC = () => {
                 else if (plot.coordinates && Array.isArray(plot.coordinates)) {
                   coordinates = plot.coordinates;
                 }
-                
+
                 // Validate coordinates
                 if (!coordinates || coordinates.length < 3) {
                   return null;
                 }
-                
+
                 // Convert coordinates to Coordinate[] format [lng, lat]
                 const validCoords: Coordinate[] = coordinates
-                  .filter((coord: any) => 
-                    Array.isArray(coord) && coord.length >= 2 && 
+                  .filter((coord: any) =>
+                    Array.isArray(coord) && coord.length >= 2 &&
                     typeof coord[0] === 'number' && typeof coord[1] === 'number'
                   )
                   .map((coord: any) => [coord[0], coord[1]] as Coordinate);
-                
+
                 if (validCoords.length < 3) {
                   return null;
                 }
-                
+
                 return {
                   id: String(plotId),
                   area_ha: String(areaAcres || 0), // Store area in acres
@@ -3543,7 +3543,7 @@ const App: React.FC = () => {
                 };
               })
               .filter((plot): plot is { id: string; area_ha: string; boundary: Coordinate[] } => plot !== null);
-            
+
             // Set all tile URLs at once (after collecting them all)
             if (Object.keys(tileUrlsMap).length > 0) {
               // For field-level growth, also key tile by numeric field_id so map overlay is stable
@@ -3560,7 +3560,7 @@ const App: React.FC = () => {
             } else {
               setAllPlotsTileUrls({});
             }
-            
+
             if (plotsForMap.length > 0) {
               // Field-level growth: keep Display-boundary field plots; only update tiles + cards
               if (isFieldLevelAnalysis) {
@@ -3637,10 +3637,10 @@ const App: React.FC = () => {
           if (activeTab === 'waterSource') {
             const ndwiResponse = response as NDWIDetectionResponse;
             const responseAny = response as any;
-            
+
             // Try multiple possible field names and locations
             let waterArea: number | null = null;
-            
+
             // FIRST: Check in area_summary (this is the correct location based on API response)
             if (ndwiResponse.area_summary?.water_area_hectare !== undefined && ndwiResponse.area_summary.water_area_hectare !== null) {
               waterArea = ndwiResponse.area_summary.water_area_hectare;
@@ -3659,7 +3659,7 @@ const App: React.FC = () => {
             } else if (responseAny.total_water_area_hectares !== undefined && responseAny.total_water_area_hectares !== null) {
               waterArea = responseAny.total_water_area_hectares;
             }
-            
+
             // THIRD: Check in pixel_summary if available
             if (waterArea === null && response.pixel_summary) {
               const pixelSummary = response.pixel_summary as any;
@@ -3669,7 +3669,7 @@ const App: React.FC = () => {
                 waterArea = pixelSummary.water_area_hectares;
               }
             }
-            
+
             if (waterArea !== null && !isNaN(waterArea) && waterArea >= 0) {
               setWaterAreaHectares(waterArea);
             } else {
@@ -3679,7 +3679,7 @@ const App: React.FC = () => {
             // Clear water area when switching away from waterSource tab
             setWaterAreaHectares(null);
           }
-          
+
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
           setError(`Failed to load plots: ${errorMessage}`);
@@ -3879,7 +3879,6 @@ const App: React.FC = () => {
     }
 
     const cropKeys = CROP_SELECTION_KEYS.filter((k) => selectedCrops[k]);
-    const keysToFetch = cropKeys.length > 0 ? cropKeys : [...CROP_SELECTION_KEYS];
     const cropColorByName: Record<string, string> = {};
     const cropLabelByName: Record<string, string> = {};
     CROP_SELECTION_OPTIONS.forEach((opt) => {
@@ -3902,10 +3901,7 @@ const App: React.FC = () => {
         seriesSet.add(cropLabel);
         Object.entries(breakdown).forEach(([regionName, cropHaMap]) => {
           const row = regionMap.get(regionName) || { label: regionName };
-          const area =
-            cropHaMap?.[cropName] ??
-            cropHaMap?.[key] ??
-            Object.values(cropHaMap || {}).find((v) => typeof v === 'number');
+          const area = cropHaMap?.[cropName] ?? cropHaMap?.[key];
           row[cropLabel] = typeof area === 'number' && !Number.isNaN(area) ? Number(area.toFixed(2)) : 0;
           regionMap.set(regionName, row);
         });
@@ -3927,43 +3923,34 @@ const App: React.FC = () => {
     setTrendCropAreaError(null);
     setTrendVillageCropAreaLoading(!!selectedSubdistrict);
 
+    const cropsWithArea = (res: PredictAreaCropAreasResponse): CropSelectionKey[] =>
+      CROP_SELECTION_KEYS.filter((key) => {
+        if (cropKeys.length > 0 && !cropKeys.includes(key)) return false;
+        const cropName = cropResponseKey(key);
+        const ha = res.totals?.[cropName] ?? res.totals?.[key];
+        return typeof ha === 'number' && !Number.isNaN(ha) && ha > 0;
+      });
+
     const load = async () => {
       try {
-        const districtSettled = await Promise.allSettled(
-          keysToFetch.map(async (key) => {
-            const res = await fetchPredictAreaCropAreas(
-              selectedDistrict,
-              null,
-              month,
-              cropResponseKey(key)
-            );
-            return { key, res };
-          })
-        );
+        const res = await fetchPredictAreaCropAreas(selectedDistrict, null, month);
         if (cancelled) return;
 
-        const districtOk = districtSettled
-          .filter((r): r is PromiseFulfilledResult<{ key: CropSelectionKey; res: PredictAreaCropAreasResponse }> => r.status === 'fulfilled')
-          .map((r) => r.value);
-
-        const totalsRows: Array<{ label: string; ha: number; fill: string }> = [];
-        districtOk.forEach(({ key, res }) => {
+        const presentKeys = cropsWithArea(res);
+        const totalsRows = presentKeys.map((key) => {
           const cropName = cropResponseKey(key);
-          const cropLabel = cropLabelByName[cropName] || cropName;
-          const ha =
-            res.totals?.[cropName] ??
-            res.totals?.[key] ??
-            Object.values(res.totals || {}).find((v) => typeof v === 'number');
-          if (typeof ha === 'number' && !Number.isNaN(ha)) {
-            totalsRows.push({
-              label: cropLabel,
-              ha: Number(ha.toFixed(2)),
-              fill: cropColorByName[cropName] || '#22c55e',
-            });
-          }
+          const ha = Number(res.totals?.[cropName] ?? res.totals?.[key] ?? 0);
+          return {
+            label: cropLabelByName[cropName] || cropName,
+            ha: Number(ha.toFixed(2)),
+            fill: cropColorByName[cropName] || '#22c55e',
+          };
         });
 
-        const subdistrictChart = buildRegionRows(districtOk, 'subdistrict_wise');
+        const subdistrictChart = buildRegionRows(
+          presentKeys.map((key) => ({ key, res })),
+          'subdistrict_wise'
+        );
         setTrendCropAreaTotals(totalsRows);
         setTrendCropAreaByRegion(subdistrictChart.rows);
         setTrendCropAreaRegionKeys(subdistrictChart.seriesKeys);
@@ -3979,23 +3966,17 @@ const App: React.FC = () => {
           return;
         }
 
-        const villageSettled = await Promise.allSettled(
-          keysToFetch.map(async (key) => {
-            const res = await fetchPredictAreaCropAreas(
-              selectedDistrict,
-              selectedSubdistrict,
-              month,
-              cropResponseKey(key)
-            );
-            return { key, res };
-          })
+        const villageRes = await fetchPredictAreaCropAreas(
+          selectedDistrict,
+          selectedSubdistrict,
+          month
         );
         if (cancelled) return;
-
-        const villageOk = villageSettled
-          .filter((r): r is PromiseFulfilledResult<{ key: CropSelectionKey; res: PredictAreaCropAreasResponse }> => r.status === 'fulfilled')
-          .map((r) => r.value);
-        const villageChart = buildRegionRows(villageOk, 'village_wise');
+        const villageKeys = cropsWithArea(villageRes);
+        const villageChart = buildRegionRows(
+          villageKeys.map((key) => ({ key, res: villageRes })),
+          'village_wise'
+        );
         setTrendVillageCropArea(villageChart.rows);
         setTrendVillageCropAreaKeys(villageChart.seriesKeys);
         setTrendVillageCropAreaColors(villageChart.seriesColors);
@@ -4039,7 +4020,7 @@ const App: React.FC = () => {
     if (splitScreenMode && leftSelectedDistrict && !leftSelectedSubdistrict && !leftSelectedVillage) {
       // Find the selected district data
       const districtData = districts.find(d => d.district === leftSelectedDistrict);
-      
+
       // Extract coordinates from geometry and display on map
       if (districtData?.geometry) {
         const plots = geometryToBoundaryPlots(leftSelectedDistrict, districtData.geometry);
@@ -4075,7 +4056,7 @@ const App: React.FC = () => {
     if (splitScreenMode && rightSelectedDistrict && !rightSelectedSubdistrict && !rightSelectedVillage) {
       // Find the selected district data
       const districtData = districts.find(d => d.district === rightSelectedDistrict);
-      
+
       // Extract coordinates from geometry and display on map
       if (districtData?.geometry) {
         const plots = geometryToBoundaryPlots(rightSelectedDistrict, districtData.geometry);
@@ -4110,15 +4091,15 @@ const App: React.FC = () => {
     if (splitScreenMode && leftSelectedSubdistrict && leftSubdistricts.length > 0 && !leftActiveTab && !leftSelectedVillage) {
       // Find the selected subdistrict data
       const subdistrictData = leftSubdistricts.find(s => s.subdistrict === leftSelectedSubdistrict);
-      
+
       if (subdistrictData?.geometry) {
         try {
           let coordinates: Coordinate[] = [];
-          
+
           // Handle different geometry formats
           if (subdistrictData.geometry.type === 'Polygon' || subdistrictData.geometry.type === 'MultiPolygon') {
             const coords = subdistrictData.geometry.coordinates;
-            
+
             if (subdistrictData.geometry.type === 'Polygon') {
               const outerRing = coords[0] || [];
               coordinates = outerRing.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
@@ -4136,7 +4117,7 @@ const App: React.FC = () => {
               coordinates = coords.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
             }
           }
-          
+
           // Create a plot from subdistrict boundary for map display
           if (coordinates.length >= 3) {
             const subdistrictPlot = {
@@ -4145,7 +4126,7 @@ const App: React.FC = () => {
               boundary: coordinates
             };
             setLeftAllPlots([subdistrictPlot]);
-            
+
             // Calculate bounds for the subdistrict
             if (coordinates.length > 0) {
               const bounds = L.latLngBounds([]);
@@ -4171,7 +4152,7 @@ const App: React.FC = () => {
       if (districtData?.geometry && !leftActiveTab) {
         try {
           let coordinates: Coordinate[] = [];
-          
+
           if (districtData.geometry.type === 'Polygon' || districtData.geometry.type === 'MultiPolygon') {
             const coords = districtData.geometry.coordinates;
             if (districtData.geometry.type === 'Polygon') {
@@ -4191,7 +4172,7 @@ const App: React.FC = () => {
               coordinates = coords.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
             }
           }
-          
+
           if (coordinates.length >= 3) {
             const districtPlot = {
               id: leftSelectedDistrict,
@@ -4297,7 +4278,7 @@ const App: React.FC = () => {
       if (subdistrictData?.geometry && !leftActiveTab) {
         try {
           let coordinates: Coordinate[] = [];
-          
+
           if (subdistrictData.geometry.type === 'Polygon' || subdistrictData.geometry.type === 'MultiPolygon') {
             const coords = subdistrictData.geometry.coordinates;
             if (subdistrictData.geometry.type === 'Polygon') {
@@ -4317,7 +4298,7 @@ const App: React.FC = () => {
               coordinates = coords.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
             }
           }
-          
+
           if (coordinates.length >= 3) {
             const subdistrictPlot = {
               id: leftSelectedSubdistrict,
@@ -4337,15 +4318,15 @@ const App: React.FC = () => {
     if (splitScreenMode && rightSelectedSubdistrict && rightSubdistricts.length > 0 && !rightActiveTab && !rightSelectedVillage) {
       // Find the selected subdistrict data
       const subdistrictData = rightSubdistricts.find(s => s.subdistrict === rightSelectedSubdistrict);
-      
+
       if (subdistrictData?.geometry) {
         try {
           let coordinates: Coordinate[] = [];
-          
+
           // Handle different geometry formats
           if (subdistrictData.geometry.type === 'Polygon' || subdistrictData.geometry.type === 'MultiPolygon') {
             const coords = subdistrictData.geometry.coordinates;
-            
+
             if (subdistrictData.geometry.type === 'Polygon') {
               const outerRing = coords[0] || [];
               coordinates = outerRing.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
@@ -4363,7 +4344,7 @@ const App: React.FC = () => {
               coordinates = coords.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
             }
           }
-          
+
           // Create a plot from subdistrict boundary for map display
           if (coordinates.length >= 3) {
             const subdistrictPlot = {
@@ -4372,7 +4353,7 @@ const App: React.FC = () => {
               boundary: coordinates
             };
             setRightAllPlots([subdistrictPlot]);
-            
+
             // Calculate bounds for the subdistrict
             if (coordinates.length > 0) {
               const bounds = L.latLngBounds([]);
@@ -4398,7 +4379,7 @@ const App: React.FC = () => {
       if (districtData?.geometry) {
         try {
           let coordinates: Coordinate[] = [];
-          
+
           if (districtData.geometry.type === 'Polygon' || districtData.geometry.type === 'MultiPolygon') {
             const coords = districtData.geometry.coordinates;
             if (districtData.geometry.type === 'Polygon') {
@@ -4418,7 +4399,7 @@ const App: React.FC = () => {
               coordinates = coords.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
             }
           }
-          
+
           if (coordinates.length >= 3) {
             const districtPlot = {
               id: rightSelectedDistrict,
@@ -4524,7 +4505,7 @@ const App: React.FC = () => {
       if (subdistrictData?.geometry) {
         try {
           let coordinates: Coordinate[] = [];
-          
+
           if (subdistrictData.geometry.type === 'Polygon' || subdistrictData.geometry.type === 'MultiPolygon') {
             const coords = subdistrictData.geometry.coordinates;
             if (subdistrictData.geometry.type === 'Polygon') {
@@ -4544,7 +4525,7 @@ const App: React.FC = () => {
               coordinates = coords.map((coord: number[]) => [coord[0], coord[1]] as Coordinate);
             }
           }
-          
+
           if (coordinates.length >= 3) {
             const subdistrictPlot = {
               id: rightSelectedSubdistrict,
@@ -4584,7 +4565,7 @@ const App: React.FC = () => {
             setSelectedForestAgeClass(null);
             setForestAreaHa(null);
           }
-          
+
           let locationBoundary: OutlinePlot | null = null;
 
           if (
@@ -4606,41 +4587,41 @@ const App: React.FC = () => {
               applyOutlineBounds(locationBoundary, setPlotBounds);
             }
           }
-          
+
           if (!isFieldLevelAnalysis) {
           setLeftAllPlots([]);
           }
-          
+
           let response: GrowthAnalysisResponse | NDWIDetectionResponse;
           switch (leftActiveTab) {
             case 'growth':
               response = await fetchGrowthAnalysis1(
-                leftSelectedDistrict, 
-                leftSelectedSubdistrict || undefined, 
+                leftSelectedDistrict,
+                leftSelectedSubdistrict || undefined,
                 leftSelectedVillage || undefined,
                 selectedFieldId
               );
               break;
             case 'water':
               response = await fetchWaterUptakeAnalysis(
-                leftSelectedDistrict, 
-                leftSelectedSubdistrict || undefined, 
+                leftSelectedDistrict,
+                leftSelectedSubdistrict || undefined,
                 leftSelectedVillage || undefined,
                 selectedFieldId
               );
               break;
             case 'soil':
               response = await fetchSoilMoistureAnalysis(
-                leftSelectedDistrict, 
-                leftSelectedSubdistrict || undefined, 
+                leftSelectedDistrict,
+                leftSelectedSubdistrict || undefined,
                 leftSelectedVillage || undefined,
                 selectedFieldId
               );
               break;
             case 'pest':
               response = await fetchPestDetectionAnalysis(
-                leftSelectedDistrict, 
-                leftSelectedSubdistrict || undefined, 
+                leftSelectedDistrict,
+                leftSelectedSubdistrict || undefined,
                 leftSelectedVillage || undefined,
                 undefined,
                 selectedFieldId
@@ -4648,8 +4629,8 @@ const App: React.FC = () => {
               break;
             case 'waterSource':
               response = await fetchNDWIDetection(
-                leftSelectedDistrict, 
-                leftSelectedSubdistrict || undefined, 
+                leftSelectedDistrict,
+                leftSelectedSubdistrict || undefined,
                 leftSelectedVillage || undefined
               );
               break;
@@ -4683,7 +4664,7 @@ const App: React.FC = () => {
           // Extract plots and tile URLs (similar to main mode)
           const responseAny = response as any;
           let plotsArray: any[] = [];
-          
+
           if (response.plots && Array.isArray(response.plots)) {
             plotsArray = response.plots;
           } else if (responseAny.features && Array.isArray(responseAny.features)) {
@@ -4699,18 +4680,18 @@ const App: React.FC = () => {
           } else if (responseAny.feature && responseAny.feature.type === 'Feature' && responseAny.feature.geometry) {
             plotsArray = [responseAny.feature];
           }
-          
+
           // Extract tile URLs and plot boundaries from plots
           if (plotsArray.length > 0) {
             const tileUrlsMap: Record<string, string> = {};
-            
+
             // First pass: Collect all tile URLs
             plotsArray.forEach((plot, index) => {
-              const plotId = plot.properties?.plot_id || plot.plot_id || 
-                            plot.properties?.plot_name || plot.plot_name || 
+              const plotId = plot.properties?.plot_id || plot.plot_id ||
+                            plot.properties?.plot_name || plot.plot_name ||
                             `plot-${index}`;
               const tileUrl = plot.properties?.tile_url || plot.tile_url;
-              
+
               if (tileUrl) {
                 const cleanTileUrl = resolveMapTileUrl(tileUrl);
                 if (cleanTileUrl) {
@@ -4718,7 +4699,7 @@ const App: React.FC = () => {
                 }
               }
             });
-            
+
             if (Object.keys(tileUrlsMap).length > 0) {
               if (isFieldLevelAnalysis && selectedFieldId != null) {
                 const firstUrl = Object.values(tileUrlsMap)[0];
@@ -4732,22 +4713,22 @@ const App: React.FC = () => {
             } else {
               setLeftAllPlotsTileUrls({});
             }
-            
+
             // Second pass: Convert plots to map format (only plots with valid coordinates)
             const plotsForMap = plotsArray
               .map((plot, index) => {
-                const plotId = plot.properties?.plot_id || plot.plot_id || 
-                              plot.properties?.plot_name || plot.plot_name || 
+                const plotId = plot.properties?.plot_id || plot.plot_id ||
+                              plot.properties?.plot_name || plot.plot_name ||
                               `plot-${index}`;
                 const areaAcres = plot.properties?.area_acres || plot.area_acres;
-                
+
                 if (!plotId) {
                   return null;
                 }
-                
+
                 // Extract coordinates from different formats
                 let coordinates: number[][] = [];
-                
+
                 // Format 1: GeoJSON Feature with geometry
                 if (plot.geometry && plot.geometry.coordinates) {
                   const geomCoords = plot.geometry.coordinates;
@@ -4769,24 +4750,24 @@ const App: React.FC = () => {
                 else if (plot.coordinates && Array.isArray(plot.coordinates)) {
                   coordinates = plot.coordinates;
                 }
-                
+
                 // Validate coordinates
                 if (!coordinates || coordinates.length < 3) {
                   return null;
                 }
-                
+
                 // Convert coordinates to Coordinate[] format [lng, lat]
                 const validCoords: Coordinate[] = coordinates
-                  .filter((coord: any) => 
-                    Array.isArray(coord) && coord.length >= 2 && 
+                  .filter((coord: any) =>
+                    Array.isArray(coord) && coord.length >= 2 &&
                     typeof coord[0] === 'number' && typeof coord[1] === 'number'
                   )
                   .map((coord: any) => [coord[0], coord[1]] as Coordinate);
-                
+
                 if (validCoords.length < 3) {
                   return null;
                 }
-                
+
                 return {
                   id: String(plotId),
                   area_ha: String(areaAcres || 0),
@@ -4794,12 +4775,12 @@ const App: React.FC = () => {
                 };
               })
               .filter((plot): plot is { id: string; area_ha: string; boundary: Coordinate[] } => plot !== null);
-            
+
             // Single boundary only — skip duplicate AOI polygon from analysis API when outline exists
             // Field-level growth keeps Display-boundary field polygons on the map.
             if (!isFieldLevelAnalysis) {
             const finalPlots = locationBoundary ? [locationBoundary] : plotsForMap;
-            
+
             if (finalPlots.length > 0) {
               setLeftAllPlots(finalPlots);
               } else if (locationBoundary) {
@@ -4827,7 +4808,7 @@ const App: React.FC = () => {
             if ((leftActiveTab === 'growth' || leftActiveTab === 'water' || leftActiveTab === 'soil') && classwise && Array.isArray(classwise) && classwise.length > 0) {
               tabData.classwise = classwise;
             }
-            
+
             // Handle pest hierarchy
             if (leftActiveTab === 'pest') {
               const pestResponse: any = response;
@@ -4946,7 +4927,7 @@ const App: React.FC = () => {
             setSelectedForestAgeClass(null);
             setForestAreaHa(null);
           }
-          
+
           let locationBoundary: OutlinePlot | null = null;
 
           if (
@@ -4968,41 +4949,41 @@ const App: React.FC = () => {
               applyOutlineBounds(locationBoundary, setPlotBounds);
             }
           }
-          
+
           if (!isFieldLevelAnalysis) {
           setRightAllPlots([]);
           }
-          
+
           let response: GrowthAnalysisResponse | NDWIDetectionResponse;
           switch (rightActiveTab) {
             case 'growth':
               response = await fetchGrowthAnalysis1(
-                rightSelectedDistrict, 
-                rightSelectedSubdistrict || undefined, 
+                rightSelectedDistrict,
+                rightSelectedSubdistrict || undefined,
                 rightSelectedVillage || undefined,
                 selectedFieldId
               );
               break;
             case 'water':
               response = await fetchWaterUptakeAnalysis(
-                rightSelectedDistrict, 
-                rightSelectedSubdistrict || undefined, 
+                rightSelectedDistrict,
+                rightSelectedSubdistrict || undefined,
                 rightSelectedVillage || undefined,
                 selectedFieldId
               );
               break;
             case 'soil':
               response = await fetchSoilMoistureAnalysis(
-                rightSelectedDistrict, 
-                rightSelectedSubdistrict || undefined, 
+                rightSelectedDistrict,
+                rightSelectedSubdistrict || undefined,
                 rightSelectedVillage || undefined,
                 selectedFieldId
               );
               break;
             case 'pest':
               response = await fetchPestDetectionAnalysis(
-                rightSelectedDistrict, 
-                rightSelectedSubdistrict || undefined, 
+                rightSelectedDistrict,
+                rightSelectedSubdistrict || undefined,
                 rightSelectedVillage || undefined,
                 undefined,
                 selectedFieldId
@@ -5010,8 +4991,8 @@ const App: React.FC = () => {
               break;
             case 'waterSource':
               response = await fetchNDWIDetection(
-                rightSelectedDistrict, 
-                rightSelectedSubdistrict || undefined, 
+                rightSelectedDistrict,
+                rightSelectedSubdistrict || undefined,
                 rightSelectedVillage || undefined
               );
               break;
@@ -5045,7 +5026,7 @@ const App: React.FC = () => {
           // Extract plots and tile URLs (similar to main mode)
           const responseAny = response as any;
           let plotsArray: any[] = [];
-          
+
           if (response.plots && Array.isArray(response.plots)) {
             plotsArray = response.plots;
           } else if (responseAny.features && Array.isArray(responseAny.features)) {
@@ -5061,18 +5042,18 @@ const App: React.FC = () => {
           } else if (responseAny.feature && responseAny.feature.type === 'Feature' && responseAny.feature.geometry) {
             plotsArray = [responseAny.feature];
           }
-          
+
           // Extract tile URLs and plot boundaries from plots
           if (plotsArray.length > 0) {
             const tileUrlsMap: Record<string, string> = {};
-            
+
             // First pass: Collect all tile URLs
             plotsArray.forEach((plot, index) => {
-              const plotId = plot.properties?.plot_id || plot.plot_id || 
-                            plot.properties?.plot_name || plot.plot_name || 
+              const plotId = plot.properties?.plot_id || plot.plot_id ||
+                            plot.properties?.plot_name || plot.plot_name ||
                             `plot-${index}`;
               const tileUrl = plot.properties?.tile_url || plot.tile_url;
-              
+
               if (tileUrl) {
                 const cleanTileUrl = resolveMapTileUrl(tileUrl);
                 if (cleanTileUrl) {
@@ -5080,7 +5061,7 @@ const App: React.FC = () => {
                 }
               }
             });
-            
+
             if (Object.keys(tileUrlsMap).length > 0) {
               if (isFieldLevelAnalysis && selectedFieldId != null) {
                 const firstUrl = Object.values(tileUrlsMap)[0];
@@ -5094,22 +5075,22 @@ const App: React.FC = () => {
             } else {
               setRightAllPlotsTileUrls({});
             }
-            
+
             // Second pass: Convert plots to map format (only plots with valid coordinates)
             const plotsForMap = plotsArray
               .map((plot, index) => {
-                const plotId = plot.properties?.plot_id || plot.plot_id || 
-                              plot.properties?.plot_name || plot.plot_name || 
+                const plotId = plot.properties?.plot_id || plot.plot_id ||
+                              plot.properties?.plot_name || plot.plot_name ||
                               `plot-${index}`;
                 const areaAcres = plot.properties?.area_acres || plot.area_acres;
-                
+
                 if (!plotId) {
                   return null;
                 }
-                
+
                 // Extract coordinates from different formats
                 let coordinates: number[][] = [];
-                
+
                 // Format 1: GeoJSON Feature with geometry
                 if (plot.geometry && plot.geometry.coordinates) {
                   const geomCoords = plot.geometry.coordinates;
@@ -5131,24 +5112,24 @@ const App: React.FC = () => {
                 else if (plot.coordinates && Array.isArray(plot.coordinates)) {
                   coordinates = plot.coordinates;
                 }
-                
+
                 // Validate coordinates
                 if (!coordinates || coordinates.length < 3) {
                   return null;
                 }
-                
+
                 // Convert coordinates to Coordinate[] format [lng, lat]
                 const validCoords: Coordinate[] = coordinates
-                  .filter((coord: any) => 
-                    Array.isArray(coord) && coord.length >= 2 && 
+                  .filter((coord: any) =>
+                    Array.isArray(coord) && coord.length >= 2 &&
                     typeof coord[0] === 'number' && typeof coord[1] === 'number'
                   )
                   .map((coord: any) => [coord[0], coord[1]] as Coordinate);
-                
+
                 if (validCoords.length < 3) {
                   return null;
                 }
-                
+
                 return {
                   id: String(plotId),
                   area_ha: String(areaAcres || 0),
@@ -5156,12 +5137,12 @@ const App: React.FC = () => {
                 };
               })
               .filter((plot): plot is { id: string; area_ha: string; boundary: Coordinate[] } => plot !== null);
-            
+
             // Single boundary only — skip duplicate AOI polygon from analysis API when outline exists
             // Field-level analysis keeps Display-boundary / crop-layer polygons on the map.
             if (!isFieldLevelAnalysis) {
             const finalPlots = locationBoundary ? [locationBoundary] : plotsForMap;
-            
+
             if (finalPlots.length > 0) {
               setRightAllPlots(finalPlots);
               } else if (locationBoundary) {
@@ -5189,7 +5170,7 @@ const App: React.FC = () => {
             if ((rightActiveTab === 'growth' || rightActiveTab === 'water' || rightActiveTab === 'soil') && classwise && Array.isArray(classwise) && classwise.length > 0) {
               tabData.classwise = classwise;
             }
-            
+
             // Handle pest hierarchy
             if (rightActiveTab === 'pest') {
               const pestResponse: any = response;
@@ -5299,17 +5280,17 @@ const App: React.FC = () => {
           setLeftVillages([...villages]);
         }
       }
-      
+
       // Copy current tile URLs to left side if left side is empty
       if (Object.keys(leftAllPlotsTileUrls).length === 0 && Object.keys(allPlotsTileUrls).length > 0) {
         setLeftAllPlotsTileUrls({ ...allPlotsTileUrls });
       }
-      
+
       // Copy current analysis data to left side if left side is empty
       if (!leftAllPlotsAnalysisData && allPlotsAnalysisData) {
         setLeftAllPlotsAnalysisData({ ...allPlotsAnalysisData });
       }
-      
+
       // Copy current active tab to left side if left side is empty
       if (!leftActiveTab && activeTab) {
         setLeftActiveTab(activeTab);
@@ -5505,7 +5486,7 @@ const App: React.FC = () => {
         if (!cancelled) {
           setLeftPestStoredSeries(data);
           setLeftSelectedPestYearMonth(null);
-          
+
           // Auto-select first pest category from first month's data if available
           if (data.length > 0 && data[0].response_data?.hierarchy) {
             const hierarchy = data[0].response_data.hierarchy;
@@ -5556,7 +5537,7 @@ const App: React.FC = () => {
         if (!cancelled) {
           setRightPestStoredSeries(data);
           setRightSelectedPestYearMonth(null);
-          
+
           // Auto-select first pest category from first month's data if available
           if (data.length > 0 && data[0].response_data?.hierarchy) {
             const hierarchy = data[0].response_data.hierarchy;
@@ -6125,7 +6106,7 @@ const App: React.FC = () => {
   const getCurrentPixelData = (side: 'left' | 'right' = 'left') => {
     const sideActiveTab = getActiveTab(side);
     const sideAllPlotsAnalysisData = getAllPlotsAnalysisData(side);
-    
+
     if (sideActiveTab === 'growth') {
       return sideAllPlotsAnalysisData?.growth || growthData;
     } else if (sideActiveTab === 'water') {
@@ -7675,7 +7656,7 @@ const App: React.FC = () => {
             </div>
           )}
             </div>
-            
+
             {/* Logout Button at Bottom — pinned outside scrubber */}
             <div className={`relative z-10 flex-shrink-0 p-1 border-t ${isDarkMode ? 'border-gray-700 bg-gray-900/50' : 'border-emerald-100 bg-white/80'}`}>
               <button
@@ -9240,7 +9221,7 @@ const App: React.FC = () => {
               </button>
 
               {/* Land Surface Temperature â€” toggles on/off with repeat click */}
-              <div 
+              <div
                 onClick={async () => {
                   if (lstTileUrl) {
                     clearLstTileLayer();
@@ -9258,11 +9239,11 @@ const App: React.FC = () => {
                 tabIndex={0}
                 className={`${splitScreenMode ? 'px-1.5 py-1' : 'px-2 md:px-3 py-1.5 md:py-2'} rounded-md border-2 transition-all duration-200 flex items-center gap-1.5 flex-shrink-0 ${
                   lstTileUrl || (selectedDistrict && !lstLoading && !loading)
-                    ? 'cursor-pointer hover:border-green-500 hover:bg-gray-600' 
+                    ? 'cursor-pointer hover:border-green-500 hover:bg-gray-600'
                     : 'cursor-not-allowed opacity-50'
                 } ${
-                  lstTileUrl 
-                    ? 'bg-green-600/20 border-green-500' 
+                  lstTileUrl
+                    ? 'bg-green-600/20 border-green-500'
                     : 'bg-gray-700 border-gray-600'
                 }`}
                 title="Land Surface Temperature (click again to hide)"
@@ -9321,7 +9302,7 @@ const App: React.FC = () => {
               const bottomPadding = splitScreenMode ? 18 : 22;
               const topPadding = splitScreenMode ? 15 : 20;
               const chartHeight = H - bottomPadding - topPadding;
-              
+
               // Determine what to display
               const hasChildSelection =
                 selectedPestChildSeries && childKeys.includes(selectedPestChildSeries);
@@ -9378,7 +9359,7 @@ const App: React.FC = () => {
                   ),
                 ].filter(v => !Number.isNaN(v) && v >= 0);
               }
-              
+
               const maxValue = allValues.length > 0 ? Math.max(...allValues) : 1;
               // Add some padding to max value for better visualization (10% padding)
               const paddedMaxValue = maxValue > 0 ? maxValue * 1.1 : 1;
@@ -9401,7 +9382,7 @@ const App: React.FC = () => {
               const parentColor = pestColorForKey(currentCategory);
 
               return (
-                <div 
+                <div
                   className={`absolute z-[1000] bg-gray-100 rounded-lg border border-gray-300 shadow-xl ${splitScreenMode ? 'px-3 py-2' : 'px-4 py-3'} ${pestCardPosition ? '' : (splitScreenMode ? 'bottom-4 left-4' : 'bottom-4 right-4')}`}
                   style={{
                     ...(splitScreenMode ? { width: `${W}px`, maxWidth: 'calc(50vw - 120px)' } : { width: `${pestGraphSize.width}px`, maxWidth: 'calc(100vw - 2rem)' }),
@@ -9523,7 +9504,7 @@ const App: React.FC = () => {
                     <line x1={P} y1={topPadding} x2={P} y2={H - bottomPadding} stroke="#111827" strokeWidth={1} />
                     {/* X-axis line */}
                     <line x1={P} y1={H - bottomPadding} x2={W - P} y2={H - bottomPadding} stroke="#111827" strokeWidth={1} />
-                    
+
                     {/* Y-axis labels â€“ same format as Growth/Water/Soil (e.g. 1.5k for 1500) */}
                     {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
                       const value = paddedMaxValue * ratio;
@@ -9537,7 +9518,7 @@ const App: React.FC = () => {
                         </g>
                       );
                     })}
-                    
+
                     {/* Y-axis title */}
                     <text
                       x={splitScreenMode ? 15 : 20}
@@ -9559,8 +9540,8 @@ const App: React.FC = () => {
                       // If showAllTimeSeries is true, show all months fully visible
                       // Otherwise, highlight selected month and blur others
                       const isSelected = currentYearMonth === label;
-                      const opacity = currentShowAllTimeSeries 
-                        ? 1 
+                      const opacity = currentShowAllTimeSeries
+                        ? 1
                         : (currentYearMonth ? (isSelected ? 1 : 0.3) : 1);
 
                       return (
@@ -9583,7 +9564,7 @@ const App: React.FC = () => {
                               />
                             );
                           })()}
-                          
+
                           {/* Children bars */}
                           {displayChildrenSeries.map((values, childIdx) => {
                             const value = values[monthIdx] || 0;
@@ -9607,7 +9588,7 @@ const App: React.FC = () => {
                       );
                     })}
                   </svg>
-                  
+
                   {/* X-axis labels - align with bars, no extra gap, scroll when narrow */}
                   <div
                     className="overflow-x-auto overflow-y-hidden mt-0.5 font-semibold text-gray-700"
@@ -9642,7 +9623,7 @@ const App: React.FC = () => {
                       })}
                     </div>
                   </div>
-                  
+
                   {/* Legend */}
                   <div className={`mt-3 flex flex-wrap items-center gap-4 ${splitScreenMode ? 'text-[10px]' : 'text-xs'} text-gray-700`}>
                     {showParent && (
@@ -9727,13 +9708,13 @@ const App: React.FC = () => {
             const hierarchy = firstItem?.response_data?.hierarchy;
             const children = hierarchy?.[leftSelectedPestCategory]?.children;
             if (!children || Object.keys(children).length === 0) return null;
-            
+
             // Position above the graph card if graph is shown, otherwise at bottom
             const graphHeight = leftShowPestSeries ? Math.min(Math.max(pestGraphSize.height, 200), 300) : 0;
             const bottomOffset = leftShowPestSeries ? graphHeight + 40 : 16; // Add 40px spacing above graph, or 16px from bottom if graph hidden
-            
+
             return (
-              <div 
+              <div
                 className="absolute left-4 z-[1000] w-[320px] max-w-[calc(50vw-120px)] px-3 py-2 bg-black/70 backdrop-blur-sm rounded-lg border border-gray-600 shadow-xl"
                 style={{ bottom: '320px' }}
               >
@@ -9873,7 +9854,7 @@ const App: React.FC = () => {
                     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block">
                       <line x1={P} y1={P} x2={P} y2={H - P} stroke="rgba(148,163,184,0.25)" />
                       <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke="rgba(148,163,184,0.25)" />
-                      
+
                       {/* Y-axis labels (0 to 100) */}
                       {[0, 20, 40, 60, 80, 100].map((val) => {
                         const y = H - P - ((val - yAxisMin) / (yAxisMax - yAxisMin)) * (H - P * 2);
@@ -10055,7 +10036,7 @@ const App: React.FC = () => {
                     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block">
                       <line x1={P} y1={P} x2={P} y2={H - P} stroke="rgba(148,163,184,0.25)" />
                       <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke="rgba(148,163,184,0.25)" />
-                      
+
                       {/* Y-axis labels (0 to 100) */}
                       {[0, 20, 40, 60, 80, 100].map((val) => {
                         const y = H - P - ((val - yAxisMin) / (yAxisMax - yAxisMin)) * (H - P * 2);
@@ -10204,7 +10185,7 @@ const App: React.FC = () => {
                   });
                   return;
                 }
-                
+
                 if (!selectedPlot || !selectedPlot.boundary || selectedPlot.boundary.length === 0) {
                   return;
                 }
@@ -10229,7 +10210,7 @@ const App: React.FC = () => {
                 } else {
                   setSelectedPlotArea(null);
                 }
-                
+
                 // Calculate center lat/long from boundary coordinates
                 // Boundary coordinates are [lng, lat] format
                 let sumLng = 0;
@@ -10240,8 +10221,8 @@ const App: React.FC = () => {
                 });
                 const centerLng = sumLng / selectedPlot.boundary.length;
                 const centerLat = sumLat / selectedPlot.boundary.length;
-                
-                
+
+
                 // Fetch ET and Weather data (cached — instant on repeat plot click)
                 try {
                   const cachedEtWeather = peekPlotEtWeather(id);
@@ -11092,7 +11073,7 @@ const App: React.FC = () => {
                 </button>
 
                 {/* Land Surface Temperature â€” toggles on/off with repeat click */}
-                <div 
+                <div
                   onClick={async () => {
                     if (lstTileUrl) {
                       clearLstTileLayer();
@@ -11113,11 +11094,11 @@ const App: React.FC = () => {
                   tabIndex={0}
                   className={`px-1.5 py-1 rounded-md border-2 transition-all duration-200 flex items-center gap-1.5 flex-shrink-0 ${
                     lstTileUrl || ((splitScreenMode ? rightSelectedDistrict : selectedDistrict) && !lstLoading && !loading)
-                      ? 'cursor-pointer hover:border-green-500 hover:bg-gray-600' 
+                      ? 'cursor-pointer hover:border-green-500 hover:bg-gray-600'
                       : 'cursor-not-allowed opacity-50'
                   } ${
-                    lstTileUrl 
-                      ? 'bg-green-600/20 border-green-500' 
+                    lstTileUrl
+                      ? 'bg-green-600/20 border-green-500'
                       : 'bg-gray-700 border-gray-600'
                   }`}
                   title="Land Surface Temperature (click again to hide)"
@@ -11213,7 +11194,7 @@ const App: React.FC = () => {
                 const bottomPadding = 18;
                 const topPadding = 15;
                 const chartHeight = H - bottomPadding - topPadding;
-                
+
                 // Determine what to display
                 const hasChildSelection = false; // Right side doesn't have child selection yet
                 const displayChildKeys = childKeys.sort();
@@ -11260,7 +11241,7 @@ const App: React.FC = () => {
                     ),
                   ].filter(v => !Number.isNaN(v) && v >= 0);
                 }
-                
+
                 const maxValue = allValues.length > 0 ? Math.max(...allValues) : 1;
                 // Add some padding to max value for better visualization (10% padding)
                 const paddedMaxValue = maxValue > 0 ? maxValue * 1.1 : 1;
@@ -11283,7 +11264,7 @@ const App: React.FC = () => {
                 const parentColor = pestColorForKey(rightSelectedPestCategory);
 
                 return (
-                  <div 
+                  <div
                     className="absolute bottom-4 right-4 z-[1000] bg-gray-100 rounded-lg border border-gray-300 shadow-xl px-3 py-2"
                     style={{ width: `${W}px`, maxWidth: 'calc(50vw - 120px)' }}
                   >
@@ -11355,7 +11336,7 @@ const App: React.FC = () => {
                       <line x1={P} y1={topPadding} x2={P} y2={H - bottomPadding} stroke="#111827" strokeWidth={1} />
                       {/* X-axis line */}
                       <line x1={P} y1={H - bottomPadding} x2={W - P} y2={H - bottomPadding} stroke="#111827" strokeWidth={1} />
-                      
+
                       {/* Y-axis labels â€“ same format as Growth/Water/Soil (e.g. 1.5k for 1500) */}
                       {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
                         const value = paddedMaxValue * ratio;
@@ -11369,7 +11350,7 @@ const App: React.FC = () => {
                           </g>
                         );
                       })}
-                      
+
                       {/* Y-axis title */}
                       <text
                         x={15}
@@ -11389,8 +11370,8 @@ const App: React.FC = () => {
                         let barIdx = 0;
                         // Check if this month is selected - highlight it, blur others
                         const isSelected = rightSelectedPestYearMonth === label;
-                        const opacity = rightShowAllTimeSeries 
-                          ? 1 
+                        const opacity = rightShowAllTimeSeries
+                          ? 1
                           : (rightSelectedPestYearMonth ? (isSelected ? 1 : 0.3) : 1);
 
                         return (
@@ -11413,7 +11394,7 @@ const App: React.FC = () => {
                                 />
                               );
                             })()}
-                            
+
                             {/* Children bars */}
                             {displayChildrenSeries.map((values, childIdx) => {
                               const value = values[monthIdx] || 0;
@@ -11437,7 +11418,7 @@ const App: React.FC = () => {
                         );
                       })}
                     </svg>
-                    
+
                     {/* X-axis labels - align with bars, no extra gap, scroll when narrow */}
                     <div
                       className="overflow-x-auto overflow-y-hidden mt-0.5 font-semibold text-gray-700"
@@ -11472,7 +11453,7 @@ const App: React.FC = () => {
                         })}
                       </div>
                     </div>
-                    
+
                     {/* Legend */}
                     <div className="mt-3 flex flex-wrap items-center gap-4 text-[10px] text-gray-700">
                       {showParent && (
@@ -11505,13 +11486,13 @@ const App: React.FC = () => {
               const hierarchy = firstItem?.response_data?.hierarchy;
               const children = hierarchy?.[rightSelectedPestCategory]?.children;
               if (!children || Object.keys(children).length === 0) return null;
-              
+
               // Position above the graph card if graph is shown, otherwise at bottom
               const graphHeight = rightShowPestSeries ? Math.min(Math.max(pestGraphSize.height, 200), 300) : 0;
               const bottomOffset = rightShowPestSeries ? graphHeight + 40 : 16; // Add 40px spacing above graph, or 16px from bottom if graph hidden
-              
+
               return (
-                <div 
+                <div
                   className="absolute right-4 z-[1000] w-[320px] max-w-[calc(50vw-120px)] px-3 py-2 bg-black/70 backdrop-blur-sm rounded-lg border border-gray-600 shadow-xl"
                   style={{ bottom: '320px' }}
                 >
@@ -11650,7 +11631,7 @@ const App: React.FC = () => {
                         <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block">
                           <line x1={P} y1={P} x2={P} y2={H - P} stroke="rgba(148,163,184,0.25)" />
                           <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke="rgba(148,163,184,0.25)" />
-                          
+
                           {/* Y-axis labels (0 to 100) */}
                           {[0, 20, 40, 60, 80, 100].map((val) => {
                             const y = H - P - ((val - yAxisMin) / (yAxisMax - yAxisMin)) * (H - P * 2);
@@ -11805,7 +11786,7 @@ const App: React.FC = () => {
 
       {/* Right Sidebar - Enabled for split screen mode */}
       {sidebarVisible && splitScreenMode && (
-        <aside 
+        <aside
           className="w-full md:w-64 md:max-w-64 h-full min-h-0 flex-shrink-0 min-w-0 border-l border-gray-700 flex flex-col z-10 shadow-xl relative overflow-hidden self-stretch"
           style={{
             backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
@@ -11817,7 +11798,7 @@ const App: React.FC = () => {
         >
           {/* Overlay for better text readability */}
           <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm"></div>
-          
+
           {/* Content with relative positioning */}
           <div className="relative z-10 flex flex-col h-full min-h-0">
             {/* Header section removed - no title or logout icon for right sidebar */}

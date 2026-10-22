@@ -41,13 +41,15 @@ const PredictAreaMapCard: React.FC<PredictAreaMapCardProps> = ({
       ? CROP_SELECTION_OPTIONS.filter((o) => allowedCropKeys.includes(o.key))
       : CROP_SELECTION_OPTIONS;
 
-  const rows = options.map((crop, index) => ({
-    key: crop.key,
-    index: index + 1,
-    name: crop.label,
-    color: cropColors[crop.key] ?? crop.color ?? '#166534',
-    area: cropAreas[crop.key] ?? null,
-  }));
+  const rows = options
+    .map((crop, index) => ({
+      key: crop.key,
+      index: index + 1,
+      name: crop.label,
+      color: cropColors[crop.key] ?? crop.color ?? '#166534',
+      area: cropAreas[crop.key] ?? null,
+    }))
+    .filter((row) => row.area == null || row.area > 0);
 
   return (
     <div
