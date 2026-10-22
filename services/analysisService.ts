@@ -1256,32 +1256,38 @@ export interface PredictAreaCropAreasResponse {
   area_calibration?: string;
 }
 
+const cropAreasCache = createApiCache<PredictAreaCropAreasResponse>();
+const CROP_AREAS_TTL_MS = 3 * 60 * 60 * 1000;
+
 export const fetchPredictAreaCropAreas = async (
   district: string,
   subdistrict: string | null | undefined,
   month: string,
   cropName?: string
 ): Promise<PredictAreaCropAreasResponse> => {
-  const params = new URLSearchParams({
-    district: district.trim(),
-    month: month.trim(),
-  });
-  if (subdistrict?.trim()) {
-    params.set('subdistrict', subdistrict.trim());
-  }
   const crop = (cropName || '').trim();
-  if (crop && crop.toLowerCase() !== 'all') {
-    params.set('crop_name', crop.toLowerCase());
-  }
-  const url = `${getBaseUrl()}/predict-area/crop-areas?${params.toString()}`;
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: { accept: 'application/json' },
+  const cacheKey = `crop-areas:v5:${district.trim().toLowerCase()}:${(subdistrict || '').trim().toLowerCase()}:${month.trim()}:${crop.toLowerCase() || 'all'}`;
+  return cropAreasCache.getOrFetch(cacheKey, CROP_AREAS_TTL_MS, async () => {
+    const params = new URLSearchParams({
+      district: district.trim(),
+      month: month.trim(),
+    });
+    if (subdistrict?.trim()) {
+      params.set('subdistrict', subdistrict.trim());
+    }
+    if (crop && crop.toLowerCase() !== 'all') {
+      params.set('crop_name', crop.toLowerCase());
+    }
+    const url = `${getBaseUrl()}/predict-area/crop-areas?${params.toString()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`Predict-area crop-areas API Error: ${response.status} ${response.statusText}`);
+    }
+    return calibrateCropAreasResponse(await response.json());
   });
-  if (!response.ok) {
-    throw new Error(`Predict-area crop-areas API Error: ${response.status} ${response.statusText}`);
-  }
-  return calibrateCropAreasResponse(await response.json());
 };
 
 /** Match village_wise API key to a /villages list item (case-insensitive). */
