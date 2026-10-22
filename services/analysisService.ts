@@ -3,10 +3,12 @@ import { Coordinate } from '../types';
 import { createApiCache } from '../utils/apiCache';
 import {
   districtTargetsFor,
+  getChildTarget,
   getDistrictAreaFactor,
   getDistrictTarget,
   isAreaCalibrated,
   markCalibrated,
+  rememberChildHa,
   rememberDistrictFactor,
   scaleChildAreaMaps,
   scaleCropAreaHa,
@@ -1976,7 +1978,7 @@ export const fetchStoredDistrictsLatest = async (
   includeResponse = true
 ): Promise<StoredDistrictsLatestResponse> => {
   const m = (month || getCurrentPredictAreaMonth()).trim();
-  const cacheKey = `districts-latest:${m}:${includeResponse ? '1' : '0'}`;
+  const cacheKey = `districts-latest:v5:${m}:${includeResponse ? '1' : '0'}`;
   return districtsLatestCache.getOrFetch(cacheKey, DISTRICTS_LATEST_TTL_MS, async () => {
     const params = new URLSearchParams({
       month: m,
@@ -1996,7 +1998,7 @@ export const fetchStoredDistrictsLatest = async (
         districts: Array.isArray(raw?.districts)
           ? raw.districts.map((item) => ({
               ...item,
-              cropwise_area: calibrateStoredDistrictCropwise(item.cropwise_area),
+              cropwise_area: calibrateStoredDistrictCropwise(item.cropwise_area, m),
             }))
           : [],
       };
@@ -2046,7 +2048,7 @@ function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): Mahara
   const presentNames = rawDistricts
     .filter((district) => district.has_data)
     .map((district) => district.district);
-  const assigned = districtTargetsFor(presentNames);
+  const assigned = districtTargetsFor(presentNames, data.month);
   const totals: Record<string, number> = {};
   const districts = rawDistricts.map((district) => {
     const rawAreas = district.crop_areas_ha || {};
@@ -2059,7 +2061,7 @@ function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): Mahara
     const areas = parts.children[district.district] || {};
     const total = Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100;
     if (district.has_data && target > 0) {
-      rememberDistrictFactor(district.district, rawTotal, target);
+      rememberDistrictFactor(district.district, rawTotal, target, data.month);
     }
     Object.entries(areas).forEach(([crop, ha]) => {
       totals[crop] = Math.round(((totals[crop] || 0) + Number(ha || 0)) * 100) / 100;
@@ -2080,36 +2082,75 @@ function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): Mahara
   });
 }
 
+function mapTotalHa(areas: Record<string, number> | undefined): number {
+  return Math.round(
+    Object.values(areas || {}).reduce((sum, value) => sum + Number(value || 0), 0) * 100
+  ) / 100;
+}
+
 function calibrateCropAreasResponse(data: PredictAreaCropAreasResponse): PredictAreaCropAreasResponse {
   if (isAreaCalibrated(data)) return data;
+  const month = data.month;
   if (data.village_wise) {
-    const rawTotal = Object.values(data.village_wise).reduce(
-      (sum, row) => sum + Object.values(row).reduce((inner, value) => inner + Number(value || 0), 0),
-      0
+    const rawTotal = mapTotalHa(
+      Object.fromEntries(
+        Object.entries(data.village_wise).map(([name, row]) => [name, mapTotalHa(row)])
+      )
     );
     const { children, totals } = scaleChildAreaMaps(
       data.village_wise,
       2,
-      Math.round(rawTotal * getDistrictAreaFactor(data.district) * 100) / 100
+      getChildTarget(
+        data.district,
+        data.subdistrict || '',
+        month,
+        Math.round(rawTotal * getDistrictAreaFactor(data.district, month) * 100) / 100
+      )
     );
     return markCalibrated({ ...data, village_wise: children, totals });
   }
   if (data.subdistrict_wise) {
-    const { children, totals } = scaleChildAreaMaps(data.subdistrict_wise, 2, getDistrictTarget(data.district));
+    const { children, totals } = scaleChildAreaMaps(
+      data.subdistrict_wise,
+      2,
+      getDistrictTarget(data.district, month)
+    );
+    Object.entries(children).forEach(([subdistrict, areas]) => {
+      rememberChildHa(data.district, subdistrict, mapTotalHa(areas), month);
+    });
     return markCalibrated({ ...data, subdistrict_wise: children, totals });
   }
-  const { totals } = scaleChildAreaMaps({ totals: data.totals || {} }, 2, getDistrictTarget(data.district));
+  const { totals } = scaleChildAreaMaps({ totals: data.totals || {} }, 2, getDistrictTarget(data.district, month));
   return markCalibrated({ ...data, totals });
 }
 
 function calibrateStoredDistrictCropwise(
-  block: StoredDistrictCropwiseArea | null | undefined
+  block: StoredDistrictCropwiseArea | null | undefined,
+  monthHint?: string
 ): StoredDistrictCropwiseArea | null | undefined {
   if (!block || isAreaCalibrated(block)) return block;
+  const month = block.year_month || monthHint;
+  const districtTarget = block.district ? getDistrictTarget(block.district, month) : undefined;
   const subdistricts = block.subdistrict_wise
-    ? scaleChildAreaMaps(block.subdistrict_wise as Record<string, Record<string, number>>, 2)
+    ? scaleChildAreaMaps(
+        block.subdistrict_wise as Record<string, Record<string, number>>,
+        2,
+        districtTarget
+      )
     : null;
-  const areas = subdistricts?.totals || scaleChildAreaMaps({ all: block.crop_areas_ha || {} }, 2).totals;
+  if (block.district && subdistricts?.children) {
+    Object.entries(subdistricts.children).forEach(([subdistrict, areas]) => {
+      rememberChildHa(
+        block.district || '',
+        subdistrict,
+        Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100,
+        month
+      );
+    });
+  }
+  const areas =
+    subdistricts?.totals ||
+    scaleChildAreaMaps({ all: block.crop_areas_ha || {} }, 2, districtTarget).totals;
   return markCalibrated({
     ...block,
     crop_areas_ha: areas,
@@ -2178,7 +2219,7 @@ export const fetchMaharashtraCropwise = async (
   cropName = 'sugarcane'
 ): Promise<MaharashtraCropwiseResponse> => {
   const crop = cropName.trim() || 'sugarcane';
-  const cacheKey = `cropwise:v3:${month.trim()}:${crop.toLowerCase()}`;
+  const cacheKey = `cropwise:v5:${month.trim()}:${crop.toLowerCase()}`;
   return maharashtraCropwiseCache.getOrFetch(cacheKey, CROPWISE_TTL_MS, async () => {
     const params = new URLSearchParams({
       month: month.trim(),

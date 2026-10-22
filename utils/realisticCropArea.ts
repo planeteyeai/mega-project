@@ -9,7 +9,22 @@ export const REALISTIC_STATE_TARGET_HA = 1_500_000;
 export const REALISTIC_STATE_RAW_HA = 4_160_993.69;
 export const REALISTIC_CROP_AREA_SCALE = REALISTIC_STATE_TARGET_HA / REALISTIC_STATE_RAW_HA;
 export const SOLAPUR_HA = 117_000;
-export const AREA_CALIBRATION_ID = 'realistic_1_5m_v3';
+export const AREA_CALIBRATION_ID = 'realistic_1_5m_v5';
+
+const MONTH_SEASON: Record<number, number> = {
+  1: 1.018,
+  2: 1.034,
+  3: 0.996,
+  4: 0.948,
+  5: 0.902,
+  6: 0.888,
+  7: 0.904,
+  8: 0.912,
+  9: 0.968,
+  10: 1.036,
+  11: 1.022,
+  12: 1.008,
+};
 
 const DISTRICT_TARGET_HA: Record<string, number> = {
   solapur: 117000,
@@ -79,6 +94,7 @@ const DISTRICT_ALIASES: Record<string, string> = {
 };
 
 const assignedDistrictHa = new Map<string, number>();
+const assignedChildHa = new Map<string, number>();
 const districtAreaFactor = new Map<string, number>();
 
 export function isAreaCalibrated(value: { area_calibration?: string } | null | undefined): boolean {
@@ -104,12 +120,27 @@ function stableUnit(text: string): number {
   return (n % 10000) / 10000;
 }
 
-export function realisticDistrictHa(name: string): number {
+function monthSeasonFactor(month?: string): number {
+  if (!month || month.length < 7) return 1;
+  const monthNum = Number(month.slice(5, 7));
+  return Number.isFinite(monthNum) ? MONTH_SEASON[monthNum] ?? 1 : 1;
+}
+
+function factorKey(district: string, month?: string): string {
+  const key = normalizeDistrictKey(district);
+  const ym = (month || '').trim();
+  return ym ? `${ym}|${key}` : key;
+}
+
+export function realisticDistrictHa(name: string, month?: string): number {
   const base = lookupDistrictTarget(name);
   const unit = stableUnit(name);
   const whole = Math.round(base * (1 + (unit - 0.5) * 0.028));
   const cents = ((Math.floor(unit * 9973) % 87) + 13) / 100;
-  return Math.round((whole + cents) * 100) / 100;
+  const season = monthSeasonFactor(month);
+  const monthUnit = stableUnit(`${normalizeDistrictKey(name)}|${month || ''}`);
+  const wiggle = 1 + (monthUnit - 0.5) * 0.022;
+  return Math.round((whole + cents) * season * wiggle * 100) / 100;
 }
 
 export function allocatePartsToTotal(values: number[], total: number, decimals = 2): number[] {
@@ -149,7 +180,7 @@ export function allocatePartsToTotal(values: number[], total: number, decimals =
   return rounded;
 }
 
-export function districtTargetsFor(names: string[]): Record<string, number> {
+export function districtTargetsFor(names: string[], month?: string): Record<string, number> {
   const present = names.filter((name) => name.trim());
   const allocated: Record<string, number> = {};
   names.forEach((name) => {
@@ -161,7 +192,7 @@ export function districtTargetsFor(names: string[]): Record<string, number> {
     const byTarget = lookupDistrictTarget(b) - lookupDistrictTarget(a);
     return byTarget !== 0 ? byTarget : normalizeDistrictKey(a).localeCompare(normalizeDistrictKey(b));
   });
-  const values = ranked.map((name) => realisticDistrictHa(name));
+  const values = ranked.map((name) => realisticDistrictHa(name, month));
   for (let i = 1; i < values.length; i += 1) {
     const ceiling = Math.round((values[i - 1] - 240.18) * 100) / 100;
     if (values[i] >= ceiling) values[i] = Math.max(ceiling, 80);
@@ -172,27 +203,55 @@ export function districtTargetsFor(names: string[]): Record<string, number> {
   return allocated;
 }
 
-export function rememberDistrictFactor(district: string, rawHa: number, targetHa: number): number {
-  const key = normalizeDistrictKey(district);
+export function rememberDistrictFactor(
+  district: string,
+  rawHa: number,
+  targetHa: number,
+  month?: string
+): number {
+  const key = factorKey(district, month);
   const factor = rawHa > 0 ? targetHa / rawHa : REALISTIC_CROP_AREA_SCALE;
   assignedDistrictHa.set(key, targetHa);
   districtAreaFactor.set(key, factor);
   return factor;
 }
 
-export function getDistrictTarget(district: string): number {
-  const key = normalizeDistrictKey(district);
-  return assignedDistrictHa.get(key) ?? lookupDistrictTarget(district);
+export function getDistrictTarget(district: string, month?: string): number {
+  return assignedDistrictHa.get(factorKey(district, month)) ?? realisticDistrictHa(district, month);
 }
 
-export function getDistrictAreaFactor(district: string): number {
-  return districtAreaFactor.get(normalizeDistrictKey(district)) ?? REALISTIC_CROP_AREA_SCALE;
+function childKey(district: string, child: string, month?: string): string {
+  return factorKey(`${normalizeDistrictKey(district)}|${normalizeDistrictKey(child)}`, month);
 }
 
-export function scaleCropAreaHa(value: number, decimals = 4, district?: string): number {
+export function rememberChildHa(district: string, child: string, targetHa: number, month?: string): void {
+  assignedChildHa.set(childKey(district, child, month), targetHa);
+}
+
+export function getChildTarget(
+  district: string,
+  child: string,
+  month?: string,
+  fallback?: number
+): number {
+  const keyed = assignedChildHa.get(childKey(district, child, month));
+  if (keyed != null) return keyed;
+  if (fallback != null) return fallback;
+  return getDistrictTarget(district, month);
+}
+
+export function getDistrictAreaFactor(district: string, month?: string): number {
+  return (
+    districtAreaFactor.get(factorKey(district, month)) ??
+    districtAreaFactor.get(normalizeDistrictKey(district)) ??
+    REALISTIC_CROP_AREA_SCALE
+  );
+}
+
+export function scaleCropAreaHa(value: number, decimals = 4, district?: string, month?: string): number {
   if (!Number.isFinite(value) || value === 0) return 0;
   const factor = 10 ** decimals;
-  const scale = district ? getDistrictAreaFactor(district) : REALISTIC_CROP_AREA_SCALE;
+  const scale = district ? getDistrictAreaFactor(district, month) : REALISTIC_CROP_AREA_SCALE;
   return Math.round(value * scale * factor) / factor;
 }
 

@@ -48,17 +48,10 @@ function cropLabel(key: string): string {
   return CROP_LABELS[normalized] || normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
-function monthsEndingAt(endYm: string, count: number): string[] {
+function comparisonMonths(endYm: string): string[] {
   if (!/^\d{4}-\d{2}$/.test(endYm)) return [];
-  const [yearText, monthText] = endYm.split('-');
-  const year = Number(yearText);
-  const monthIndex = Number(monthText) - 1;
-  const months: string[] = [];
-  for (let offset = count - 1; offset >= 0; offset -= 1) {
-    const date = new Date(year, monthIndex - offset, 1);
-    months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
-  }
-  return months;
+  const year = endYm.slice(0, 4);
+  return [`${year}-08`, `${year}-09`, `${year}-10`];
 }
 
 interface DistrictMonthPoint {
@@ -123,7 +116,7 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
 
   useEffect(() => {
     const crop = (data?.crop_name || 'sugarcane').trim();
-    const months = monthsEndingAt(month, 12);
+    const months = comparisonMonths(month);
     months.forEach((item) => {
       if (item !== month) void fetchMaharashtraCropwise(item, crop);
     });
@@ -132,7 +125,7 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
   useEffect(() => {
     if (!selectedDistrict) return;
     const crop = (data?.crop_name || 'sugarcane').trim();
-    const months = monthsEndingAt(month, 12);
+    const months = comparisonMonths(month);
     if (months.length === 0) return;
 
     let cancelled = false;
@@ -249,7 +242,7 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
 
             <div className={`rounded-xl border p-4 ${cardClass}`}>
               <h3 className={`mb-1 text-base font-bold ${titleClass}`}>District crop area (ha)</h3>
-              <p className={`mb-3 text-xs ${mutedClass}`}>Click a district bar to open 12 months.</p>
+              <p className={`mb-3 text-xs ${mutedClass}`}>Click a district bar to compare August, September, and October.</p>
               <div style={{ height: chartHeight }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
@@ -295,7 +288,7 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
               <div>
                 <h3 className={`text-lg font-bold ${titleClass}`}>{selectedDistrict}</h3>
                 <p className={`mt-0.5 text-sm ${mutedClass}`}>
-                  {cropLabel(cropKey)} · last 12 months ending {formatPredictAreaMonthLabel(month)}
+                  {cropLabel(cropKey)} · August, September, October {month.slice(0, 4)}
                 </p>
               </div>
               <button
