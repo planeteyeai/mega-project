@@ -2,8 +2,12 @@
 import { Coordinate } from '../types';
 import { createApiCache } from '../utils/apiCache';
 import {
+  districtTargetsFor,
+  getDistrictAreaFactor,
+  getDistrictTarget,
   isAreaCalibrated,
   markCalibrated,
+  rememberDistrictFactor,
   scaleChildAreaMaps,
   scaleCropAreaHa,
 } from '../utils/realisticCropArea';
@@ -126,14 +130,14 @@ export const fetchDistricts = async (): Promise<DistrictItem[]> => {
         'accept': 'application/json'
       }
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
 
     const data: DistrictsResponse = await response.json();
     const districtsArray = data.districts || [];
-    
+
     // Handle both formats: array of strings or array of objects
     if (districtsArray.length > 0 && typeof districtsArray[0] === 'object') {
       // Return full objects with geometry
@@ -172,14 +176,14 @@ export const fetchSubdistricts = async (district: string): Promise<SubdistrictIt
         'accept': 'application/json'
       }
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
 
     const data: SubdistrictsResponse = await response.json();
     const subdistrictsArray = data.subdistricts || [];
-    
+
     // Return subdistricts with geometry
     return subdistrictsArray.map(item => ({
       subdistrict: item.subdistrict,
@@ -246,14 +250,14 @@ export const fetchVillages = async (subdistrict: string): Promise<VillageItem[]>
         'accept': 'application/json'
       }
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
 
     const data: VillagesResponse | VillageItem[] = await response.json();
     const villagesArray = Array.isArray(data) ? data : (data.villages || []);
-    
+
     return villagesArray
       .filter((item) => item.village && item.village.trim())
       .map((item) => ({
@@ -2039,14 +2043,27 @@ const CROPWISE_TTL_MS = 3 * 60 * 60 * 1000;
 function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): MaharashtraCropwiseResponse {
   if (isAreaCalibrated(data)) return data;
   const rawDistricts = data.districts || [];
-  const rawChildren: Record<string, Record<string, number>> = {};
-  rawDistricts.forEach((district, index) => {
-    rawChildren[`${index}:${district.district}`] = { ...(district.crop_areas_ha || {}) };
-  });
-  const { children, totals } = scaleChildAreaMaps(rawChildren, 2);
-  const districts = rawDistricts.map((district, index) => {
-    const areas = children[`${index}:${district.district}`] || {};
+  const presentNames = rawDistricts
+    .filter((district) => district.has_data)
+    .map((district) => district.district);
+  const assigned = districtTargetsFor(presentNames);
+  const totals: Record<string, number> = {};
+  const districts = rawDistricts.map((district) => {
+    const rawAreas = district.crop_areas_ha || {};
+    const rawTotal = Object.values(rawAreas).reduce((sum, value) => sum + Number(value || 0), 0);
+    const target = assigned[district.district] || 0;
+    const cropKeys = Object.keys(rawAreas);
+    const parts = cropKeys.length
+      ? scaleChildAreaMaps({ [district.district]: rawAreas }, 2, district.has_data ? target : 0)
+      : { children: { [district.district]: {} }, totals: {} };
+    const areas = parts.children[district.district] || {};
     const total = Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100;
+    if (district.has_data && target > 0) {
+      rememberDistrictFactor(district.district, rawTotal, target);
+    }
+    Object.entries(areas).forEach(([crop, ha]) => {
+      totals[crop] = Math.round(((totals[crop] || 0) + Number(ha || 0)) * 100) / 100;
+    });
     return {
       ...district,
       crop_areas_ha: areas,
@@ -2066,14 +2083,22 @@ function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): Mahara
 function calibrateCropAreasResponse(data: PredictAreaCropAreasResponse): PredictAreaCropAreasResponse {
   if (isAreaCalibrated(data)) return data;
   if (data.village_wise) {
-    const { children, totals } = scaleChildAreaMaps(data.village_wise, 2);
+    const rawTotal = Object.values(data.village_wise).reduce(
+      (sum, row) => sum + Object.values(row).reduce((inner, value) => inner + Number(value || 0), 0),
+      0
+    );
+    const { children, totals } = scaleChildAreaMaps(
+      data.village_wise,
+      2,
+      Math.round(rawTotal * getDistrictAreaFactor(data.district) * 100) / 100
+    );
     return markCalibrated({ ...data, village_wise: children, totals });
   }
   if (data.subdistrict_wise) {
-    const { children, totals } = scaleChildAreaMaps(data.subdistrict_wise, 2);
+    const { children, totals } = scaleChildAreaMaps(data.subdistrict_wise, 2, getDistrictTarget(data.district));
     return markCalibrated({ ...data, subdistrict_wise: children, totals });
   }
-  const { totals } = scaleChildAreaMaps({ totals: data.totals || {} }, 2);
+  const { totals } = scaleChildAreaMaps({ totals: data.totals || {} }, 2, getDistrictTarget(data.district));
   return markCalibrated({ ...data, totals });
 }
 
@@ -2153,7 +2178,7 @@ export const fetchMaharashtraCropwise = async (
   cropName = 'sugarcane'
 ): Promise<MaharashtraCropwiseResponse> => {
   const crop = cropName.trim() || 'sugarcane';
-  const cacheKey = `cropwise:${month.trim()}:${crop.toLowerCase()}`;
+  const cacheKey = `cropwise:v2:${month.trim()}:${crop.toLowerCase()}`;
   return maharashtraCropwiseCache.getOrFetch(cacheKey, CROPWISE_TTL_MS, async () => {
     const params = new URLSearchParams({
       month: month.trim(),
@@ -2379,7 +2404,7 @@ export const fetchGrowthAnalysis = async (
       },
       body: ''
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
@@ -2435,7 +2460,7 @@ export const fetchWaterUptake = async (
       },
       body: ''
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
@@ -2488,7 +2513,7 @@ export const fetchSoilMoisture = async (
       },
       body: ''
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
@@ -2540,7 +2565,7 @@ export const fetchPestDetection = async (
       },
       body: ''
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
@@ -2574,14 +2599,14 @@ export interface LoadTalukaResponse {
 export const loadTalukaPlots = async (talukaName: string): Promise<LoadTalukaResponse> => {
   try {
     const url = `${getBaseUrl()}/load-taluka?taluka_name=${encodeURIComponent(talukaName)}`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'accept': 'application/json'
       }
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
@@ -2590,12 +2615,12 @@ export const loadTalukaPlots = async (talukaName: string): Promise<LoadTalukaRes
     let data: any;
     try {
       const responseText = await response.text();
-      
+
       // Check if response is too large or empty
       if (!responseText || responseText.length === 0) {
         throw new Error('Empty response from server');
       }
-      
+
       // Parse JSON from text
       data = JSON.parse(responseText);
     } catch (parseError) {
@@ -2606,14 +2631,14 @@ export const loadTalukaPlots = async (talukaName: string): Promise<LoadTalukaRes
       }
       throw parseError;
     }
-    
+
     if (data.status === 'success') {
       // Handle two possible response formats:
       // 1. Format with plot_ids array: { plot_ids: ["1", "2", ...] }
       // 2. Format with plots array: { plots: [{ plot_id: "1" }, { plot_id: "2" }, ...] }
-      
+
       let plotIds: string[] = [];
-      
+
       if (data.plot_ids && Array.isArray(data.plot_ids)) {
         // Format 1: plot_ids is an array of strings
         plotIds = data.plot_ids;
@@ -2623,7 +2648,7 @@ export const loadTalukaPlots = async (talukaName: string): Promise<LoadTalukaRes
       } else {
         throw new Error('Invalid response format: neither plot_ids array nor plots array found');
       }
-      
+
       // Return normalized response with plot_ids array and plots array if available
       return {
         status: data.status,
@@ -2726,13 +2751,13 @@ export const fetchTalukaPlots = async (talukaName: string): Promise<Array<{id: s
     const url = isDevelopment
       ? `/api/get-geojson/${encodeURIComponent(talukaName)}`
       : `https://web-production-72a7.up.railway.app/get-geojson/${encodeURIComponent(talukaName)}`;
-    
+
     const response = await fetch(url, {
       headers: {
         'accept': 'application/json'
       }
     });
-    
+
     if (!response.ok) {
       await response.text().catch(() => '');
       throw new Error(`API Error: ${response.status} ${response.statusText}. URL: ${url}`);
@@ -2740,7 +2765,7 @@ export const fetchTalukaPlots = async (talukaName: string): Promise<Array<{id: s
 
     const apiResponse: TalukaPlotsResponse = await response.json();
     const data = apiResponse.geojson;
-    
+
     // Validate response structure
     if (!data || data.type !== 'FeatureCollection' || !Array.isArray(data.features)) {
       throw new Error('Invalid response format: expected GeoJSON FeatureCollection');
@@ -2750,10 +2775,10 @@ export const fetchTalukaPlots = async (talukaName: string): Promise<Array<{id: s
     const plots = data.features.map((feature) => {
       // Extract the outer ring coordinates (first array in coordinates)
       const outerRing = feature.geometry.coordinates[0] || [];
-      
+
       // Ensure plot_id is converted to string
       const plotId = String(feature.properties.plot_id);
-      
+
       return {
         id: plotId,
         area_ha: feature.properties.area_ha,
@@ -2822,7 +2847,7 @@ export const fetchNDWIDetection = async (
     if (!district || district.trim() === '') {
       throw new Error('District parameter is required for NDWI Detection');
     }
-    
+
     // Build URL with available parameters (same as other analysis endpoints)
     let url = `${getBaseUrl()}/NDWIDetection?district=${encodeURIComponent(district.trim())}`;
     if (subdistrict && subdistrict.trim() !== '') {
@@ -2831,7 +2856,7 @@ export const fetchNDWIDetection = async (
     if (village && village.trim() !== '') {
       url += `&village=${encodeURIComponent(village.trim())}`;
     }
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -2839,10 +2864,10 @@ export const fetchNDWIDetection = async (
       },
       body: ''
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      
+
       // Try to parse error as JSON for more details
       let errorMessage = `NDWI API Error: ${response.status} ${response.statusText}`;
       try {
@@ -2856,7 +2881,7 @@ export const fetchNDWIDetection = async (
           errorMessage += ` - ${errorText}`;
         }
       }
-      
+
       throw new Error(errorMessage);
     }
 
@@ -3217,7 +3242,7 @@ export const fetchLandSurfaceTemperature = async (
     if (options?.village) params.set('village', options.village);
 
     const url = `${getBaseUrl()}/land-surface-temperature?${params.toString()}`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -3225,7 +3250,7 @@ export const fetchLandSurfaceTemperature = async (
       },
       body: ''
     });
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
@@ -3254,7 +3279,7 @@ export const fetchET = async (lat: number, lon: number): Promise<ETResponse> => 
   try {
     const url = `${getBaseUrl()}/compute-et?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
     const response = await getJsonWithRetry(url);
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
@@ -3288,7 +3313,7 @@ export const fetchWeather = async (lat: number, lon: number): Promise<WeatherRes
   try {
     const url = `${getBaseUrl()}/current-weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
     const response = await getJsonWithRetry(url);
-    
+
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
