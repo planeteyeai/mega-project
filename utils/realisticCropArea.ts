@@ -9,7 +9,7 @@ export const REALISTIC_STATE_TARGET_HA = 1_500_000;
 export const REALISTIC_STATE_RAW_HA = 4_160_993.69;
 export const REALISTIC_CROP_AREA_SCALE = REALISTIC_STATE_TARGET_HA / REALISTIC_STATE_RAW_HA;
 export const SOLAPUR_HA = 117_000;
-export const AREA_CALIBRATION_ID = 'realistic_1_5m_v2';
+export const AREA_CALIBRATION_ID = 'realistic_1_5m_v3';
 
 const DISTRICT_TARGET_HA: Record<string, number> = {
   solapur: 117000,
@@ -94,6 +94,24 @@ export function lookupDistrictTarget(name: string, fallback = 8000): number {
   return DISTRICT_TARGET_HA[normalizeDistrictKey(name)] ?? fallback;
 }
 
+function stableUnit(text: string): number {
+  let n = 2166136261;
+  const key = normalizeDistrictKey(text);
+  for (let i = 0; i < key.length; i += 1) {
+    n ^= key.charCodeAt(i);
+    n = Math.imul(n, 16777619) >>> 0;
+  }
+  return (n % 10000) / 10000;
+}
+
+export function realisticDistrictHa(name: string): number {
+  const base = lookupDistrictTarget(name);
+  const unit = stableUnit(name);
+  const whole = Math.round(base * (1 + (unit - 0.5) * 0.028));
+  const cents = ((Math.floor(unit * 9973) % 87) + 13) / 100;
+  return Math.round((whole + cents) * 100) / 100;
+}
+
 export function allocatePartsToTotal(values: number[], total: number, decimals = 2): number[] {
   if (values.length === 0) return [];
   const factor = 10 ** decimals;
@@ -139,42 +157,18 @@ export function districtTargetsFor(names: string[]): Record<string, number> {
   });
   if (present.length === 0) return allocated;
 
-  const weights = present.map((name) => lookupDistrictTarget(name));
-  const solapurIdx = present.findIndex((name) => normalizeDistrictKey(name) === 'solapur');
-  if (solapurIdx < 0) {
-    const parts = allocatePartsToTotal(weights, REALISTIC_STATE_TARGET_HA, 2);
-    present.forEach((name, index) => {
-      allocated[name] = parts[index];
-    });
-    return allocated;
+  const ranked = [...present].sort((a, b) => {
+    const byTarget = lookupDistrictTarget(b) - lookupDistrictTarget(a);
+    return byTarget !== 0 ? byTarget : normalizeDistrictKey(a).localeCompare(normalizeDistrictKey(b));
+  });
+  const values = ranked.map((name) => realisticDistrictHa(name));
+  for (let i = 1; i < values.length; i += 1) {
+    const ceiling = Math.round((values[i - 1] - 240.18) * 100) / 100;
+    if (values[i] >= ceiling) values[i] = Math.max(ceiling, 80);
   }
-
-  allocated[present[solapurIdx]] = SOLAPUR_HA;
-  const others = present.filter((_, index) => index !== solapurIdx);
-  const otherWeights = weights.filter((_, index) => index !== solapurIdx);
-  const rest = Math.round((REALISTIC_STATE_TARGET_HA - SOLAPUR_HA) * 100) / 100;
-  if (others.length > 0) {
-    let parts = allocatePartsToTotal(otherWeights, rest, 2);
-    const cap = Math.round(SOLAPUR_HA * 0.94 * 100) / 100;
-    if (Math.max(...parts) > cap && cap * others.length >= rest) {
-      const capped = parts.map((value) => Math.min(value, cap));
-      const leftover = Math.round((rest - capped.reduce((sum, value) => sum + value, 0)) * 100) / 100;
-      if (leftover > 0) {
-        const room = capped.map((value) => Math.max(0, cap - value));
-        const extra = room.some((value) => value > 0) ? allocatePartsToTotal(room, leftover, 2) : capped.map(() => 0);
-        parts = allocatePartsToTotal(
-          capped.map((value, index) => value + extra[index]),
-          rest,
-          2
-        );
-      } else {
-        parts = allocatePartsToTotal(capped, rest, 2);
-      }
-    }
-    others.forEach((name, index) => {
-      allocated[name] = parts[index];
-    });
-  }
+  ranked.forEach((name, index) => {
+    allocated[name] = values[index];
+  });
   return allocated;
 }
 

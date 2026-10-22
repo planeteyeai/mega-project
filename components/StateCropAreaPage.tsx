@@ -226,7 +226,7 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className={`rounded-xl border px-4 py-3 ${cardClass}`}>
                 <p className={`text-[11px] font-semibold uppercase tracking-wider ${mutedClass}`}>
                   {cropLabel(cropKey)} area
@@ -234,12 +234,6 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
                 <p className={`mt-1 text-2xl font-bold ${titleClass}`}>
                   {formatHa(data?.total_crop_area_ha ?? 0)}
                   <span className={`ml-1 text-sm font-semibold ${mutedClass}`}>{data?.unit || 'ha'}</span>
-                </p>
-              </div>
-              <div className={`rounded-xl border px-4 py-3 ${cardClass}`}>
-                <p className={`text-[11px] font-semibold uppercase tracking-wider ${mutedClass}`}>Identified plots</p>
-                <p className={`mt-1 text-2xl font-bold ${titleClass}`}>
-                  {formatCount(data?.total_identified_plots ?? 0)}
                 </p>
               </div>
               <div className={`rounded-xl border px-4 py-3 ${cardClass}`}>
@@ -280,36 +274,6 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
               </div>
             </div>
 
-            <div className={`rounded-xl border p-4 ${cardClass}`}>
-              <h3 className={`mb-1 text-base font-bold ${titleClass}`}>District identified plots</h3>
-              <p className={`mb-3 text-xs ${mutedClass}`}>Click a district bar to open 12 months.</p>
-              <div style={{ height: chartHeight }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={[...rows].sort((a, b) => b.plots - a.plots)}
-                    layout="vertical"
-                    margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
-                    <XAxis type="number" tick={{ fill: isDarkMode ? '#d1d5db' : '#374151', fontSize: 11 }} />
-                    <YAxis
-                      type="category"
-                      dataKey="district"
-                      width={120}
-                      tick={{ fill: isDarkMode ? '#d1d5db' : '#374151', fontSize: 11 }}
-                    />
-                    <Tooltip formatter={(value: number) => [formatCount(Number(value)), 'Plots']} />
-                    <Bar
-                      dataKey="plots"
-                      fill="#0f766e"
-                      radius={[0, 3, 3, 0]}
-                      cursor="pointer"
-                      onClick={(bar) => openDistrict(String(bar?.payload?.district || ''))}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
           </>
         )}
       </div>
@@ -370,27 +334,6 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
                           <YAxis tick={{ fill: isDarkMode ? '#d1d5db' : '#374151', fontSize: 11 }} />
                           <Tooltip formatter={(value: number) => [`${formatHa(Number(value))} ha`, 'Area']} />
                           <Bar dataKey="ha" fill="#2563eb" radius={[3, 3, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                  <div>
-                    <h4 className={`mb-2 text-sm font-bold ${titleClass}`}>Identified plots</h4>
-                    <div className="h-[280px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={monthSeries} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
-                          <XAxis
-                            dataKey="label"
-                            interval={0}
-                            angle={monthSeries.length > 6 ? -35 : 0}
-                            textAnchor={monthSeries.length > 6 ? 'end' : 'middle'}
-                            height={monthSeries.length > 6 ? 70 : 36}
-                            tick={{ fill: isDarkMode ? '#d1d5db' : '#374151', fontSize: 11 }}
-                          />
-                          <YAxis tick={{ fill: isDarkMode ? '#d1d5db' : '#374151', fontSize: 11 }} />
-                          <Tooltip formatter={(value: number) => [formatCount(Number(value)), 'Plots']} />
-                          <Bar dataKey="plots" fill="#0f766e" radius={[3, 3, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>

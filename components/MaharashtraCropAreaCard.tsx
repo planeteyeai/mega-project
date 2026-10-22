@@ -113,11 +113,6 @@ const MaharashtraCropAreaCard: React.FC<MaharashtraCropAreaCardProps> = ({
                       {formatHa(crop.ha)}
                       <span className="ml-1 text-[13px] font-semibold text-slate-500">{unitLabel}</span>
                     </p>
-                    {crop.plots != null ? (
-                      <p className="mt-1 pl-[18px] text-[12px] text-slate-500">
-                        {formatCount(crop.plots)} identified plots
-                      </p>
-                    ) : null}
                   </div>
                 );
               })}
@@ -132,22 +127,14 @@ const MaharashtraCropAreaCard: React.FC<MaharashtraCropAreaCardProps> = ({
               </div>
             ) : null}
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-xl bg-slate-50 px-2.5 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Plots</p>
-                <p className="mt-0.5 text-[13px] font-bold text-slate-800">
-                  {totalPlots != null ? formatCount(totalPlots) : '—'}
-                </p>
-              </div>
-              <div className="rounded-xl bg-emerald-50 px-2.5 py-2">
+            {districtsWithData != null && districtsCount != null ? (
+              <div className="mt-3 rounded-xl bg-emerald-50 px-2.5 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700/80">Districts</p>
                 <p className="mt-0.5 text-[13px] font-bold text-emerald-900">
-                  {districtsWithData != null && districtsCount != null
-                    ? `${formatCount(districtsWithData)} / ${formatCount(districtsCount)}`
-                    : '—'}
+                  {`${formatCount(districtsWithData)} / ${formatCount(districtsCount)}`}
                 </p>
               </div>
-            </div>
+            ) : null}
           </>
         )}
       </div>

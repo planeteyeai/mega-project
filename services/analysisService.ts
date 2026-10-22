@@ -2178,7 +2178,7 @@ export const fetchMaharashtraCropwise = async (
   cropName = 'sugarcane'
 ): Promise<MaharashtraCropwiseResponse> => {
   const crop = cropName.trim() || 'sugarcane';
-  const cacheKey = `cropwise:v2:${month.trim()}:${crop.toLowerCase()}`;
+  const cacheKey = `cropwise:v3:${month.trim()}:${crop.toLowerCase()}`;
   return maharashtraCropwiseCache.getOrFetch(cacheKey, CROPWISE_TTL_MS, async () => {
     const params = new URLSearchParams({
       month: month.trim(),
