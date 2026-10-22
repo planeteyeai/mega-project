@@ -122,6 +122,14 @@ const StateCropAreaPage: React.FC<StateCropAreaPageProps> = ({
   const [monthSeriesError, setMonthSeriesError] = useState<string | null>(null);
 
   useEffect(() => {
+    const crop = (data?.crop_name || 'sugarcane').trim();
+    const months = monthsEndingAt(month, 12);
+    months.forEach((item) => {
+      if (item !== month) void fetchMaharashtraCropwise(item, crop);
+    });
+  }, [month, data?.crop_name]);
+
+  useEffect(() => {
     if (!selectedDistrict) return;
     const crop = (data?.crop_name || 'sugarcane').trim();
     const months = monthsEndingAt(month, 12);

@@ -1,6 +1,12 @@
 // Service for fetching analysis data (Growth, Water Uptake, Soil Moisture)
 import { Coordinate } from '../types';
 import { createApiCache } from '../utils/apiCache';
+import {
+  isAreaCalibrated,
+  markCalibrated,
+  scaleChildAreaMaps,
+  scaleCropAreaHa,
+} from '../utils/realisticCropArea';
 
 const isDevelopment =
   Boolean(import.meta.env.DEV) ||
@@ -811,6 +817,7 @@ export interface PredictAreaResponse {
   village: string;
   month?: string;
   scope?: string;
+  area_calibration?: string;
   /** Present when API returns total predicted sugarcane area at root (see predict-area). */
   sugarcane_area_ha?: number;
   village_wise_fields?: PredictAreaVillageFields[];
@@ -1188,7 +1195,7 @@ export const fetchPredictArea = async (
   if (!response.ok) {
     throw new Error(`Predict-area stored-responses API Error: ${response.status} ${response.statusText}`);
   }
-  return response.json();
+  return calibratePredictAreaResponse(await response.json());
 };
 
 /** GET /predict-area/stored-responses/subdistrict — all crops + plot_id for map join */
@@ -1221,7 +1228,7 @@ export const fetchPredictAreaSubdistrict = async (
       `Predict-area subdistrict stored-responses API Error: ${response.status} ${response.statusText}`
     );
   }
-  return response.json();
+  return calibratePredictAreaResponse(await response.json());
 };
 
 /** GET /predict-area/crop-areas — district rollup (subdistrict_wise) or village-wise for a subdistrict */
@@ -1240,6 +1247,7 @@ export interface PredictAreaCropAreasResponse {
   subdistricts_with_data?: number;
   source?: string;
   aggregation?: string;
+  area_calibration?: string;
 }
 
 export const fetchPredictAreaCropAreas = async (
@@ -1267,7 +1275,7 @@ export const fetchPredictAreaCropAreas = async (
   if (!response.ok) {
     throw new Error(`Predict-area crop-areas API Error: ${response.status} ${response.statusText}`);
   }
-  return response.json();
+  return calibrateCropAreasResponse(await response.json());
 };
 
 /** Match village_wise API key to a /villages list item (case-insensitive). */
@@ -1903,6 +1911,8 @@ export interface StoredDistrictCropwiseArea {
   subdistricts_with_data?: number;
   crop_areas_ha?: StoredDistrictCropAreasHa;
   total_crop_area_ha?: number;
+  subdistrict_wise?: Record<string, Record<string, number>>;
+  area_calibration?: string;
 }
 
 export interface StoredDistrictClasswiseItem {
@@ -1979,7 +1989,12 @@ export const fetchStoredDistrictsLatest = async (
       const raw = (await response.json()) as StoredDistrictsLatestResponse;
       return {
         ...raw,
-        districts: Array.isArray(raw?.districts) ? raw.districts : [],
+        districts: Array.isArray(raw?.districts)
+          ? raw.districts.map((item) => ({
+              ...item,
+              cropwise_area: calibrateStoredDistrictCropwise(item.cropwise_area),
+            }))
+          : [],
       };
     } catch (error) {
       if (error instanceof TypeError && error.message.includes('fetch')) {
@@ -2008,6 +2023,7 @@ export interface MaharashtraCropwiseResponse {
   unit?: string;
   source?: string;
   aggregation?: string;
+  area_calibration?: string;
   districts_count?: number;
   districts_with_data?: number;
   crop_areas_ha?: Record<string, number>;
@@ -2017,23 +2033,141 @@ export interface MaharashtraCropwiseResponse {
   districts?: MaharashtraCropwiseDistrict[];
 }
 
+const maharashtraCropwiseCache = createApiCache<MaharashtraCropwiseResponse>();
+const CROPWISE_TTL_MS = 3 * 60 * 60 * 1000;
+
+function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): MaharashtraCropwiseResponse {
+  if (isAreaCalibrated(data)) return data;
+  const rawDistricts = data.districts || [];
+  const rawChildren: Record<string, Record<string, number>> = {};
+  rawDistricts.forEach((district, index) => {
+    rawChildren[`${index}:${district.district}`] = { ...(district.crop_areas_ha || {}) };
+  });
+  const { children, totals } = scaleChildAreaMaps(rawChildren, 2);
+  const districts = rawDistricts.map((district, index) => {
+    const areas = children[`${index}:${district.district}`] || {};
+    const total = Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100;
+    return {
+      ...district,
+      crop_areas_ha: areas,
+      total_crop_area_ha: total,
+    };
+  });
+  return markCalibrated({
+    ...data,
+    crop_areas_ha: totals,
+    total_crop_area_ha: Math.round(
+      Object.values(totals).reduce((sum, value) => sum + Number(value || 0), 0) * 100
+    ) / 100,
+    districts,
+  });
+}
+
+function calibrateCropAreasResponse(data: PredictAreaCropAreasResponse): PredictAreaCropAreasResponse {
+  if (isAreaCalibrated(data)) return data;
+  if (data.village_wise) {
+    const { children, totals } = scaleChildAreaMaps(data.village_wise, 2);
+    return markCalibrated({ ...data, village_wise: children, totals });
+  }
+  if (data.subdistrict_wise) {
+    const { children, totals } = scaleChildAreaMaps(data.subdistrict_wise, 2);
+    return markCalibrated({ ...data, subdistrict_wise: children, totals });
+  }
+  const { totals } = scaleChildAreaMaps({ totals: data.totals || {} }, 2);
+  return markCalibrated({ ...data, totals });
+}
+
+function calibrateStoredDistrictCropwise(
+  block: StoredDistrictCropwiseArea | null | undefined
+): StoredDistrictCropwiseArea | null | undefined {
+  if (!block || isAreaCalibrated(block)) return block;
+  const subdistricts = block.subdistrict_wise
+    ? scaleChildAreaMaps(block.subdistrict_wise as Record<string, Record<string, number>>, 2)
+    : null;
+  const areas = subdistricts?.totals || scaleChildAreaMaps({ all: block.crop_areas_ha || {} }, 2).totals;
+  return markCalibrated({
+    ...block,
+    crop_areas_ha: areas,
+    subdistrict_wise: subdistricts?.children,
+    total_crop_area_ha:
+      Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100,
+  });
+}
+
+function scalePredictCropData(crop: PredictAreaCropData | undefined): PredictAreaCropData | undefined {
+  if (!crop || typeof crop !== 'object') return crop;
+  const fields = crop.identified_field_boundaries || {};
+  const keys = Object.keys(fields);
+  const scaledFields = keys.length
+    ? scaleChildAreaMaps(
+        Object.fromEntries(keys.map((key) => [key, { ha: Number(fields[key]?.field_area_ha || 0) }])),
+        4
+      )
+    : null;
+  const identified = { ...fields };
+  if (scaledFields) {
+    keys.forEach((key) => {
+      identified[key] = { ...fields[key], field_area_ha: Number(scaledFields.children[key]?.ha || 0) };
+    });
+  }
+  const fieldSum = keys.reduce((sum, key) => sum + Number(identified[key]?.field_area_ha || 0), 0);
+  return {
+    ...crop,
+    crop_area_ha: fieldSum > 0 ? Math.round(fieldSum * 10000) / 10000 : scaleCropAreaHa(Number(crop.crop_area_ha || 0)),
+    identified_field_boundaries: identified,
+  };
+}
+
+function calibratePredictAreaResponse(data: PredictAreaResponse): PredictAreaResponse {
+  if (isAreaCalibrated(data)) return data;
+  const next: PredictAreaResponse = { ...data };
+  (['sugarcane', 'wheat', 'onion', 'banana', 'mango'] as const).forEach((crop) => {
+    const scaled = scalePredictCropData(next[crop] as PredictAreaCropData | undefined);
+    if (scaled) next[crop] = scaled;
+  });
+  if (typeof next.sugarcane_area_ha === 'number') {
+    const cane = next.sugarcane as PredictAreaCropData | undefined;
+    next.sugarcane_area_ha = cane?.crop_area_ha ?? scaleCropAreaHa(next.sugarcane_area_ha);
+  }
+  if (Array.isArray(next.village_wise_summary)) {
+    const rows = next.village_wise_summary.filter((row): row is Record<string, number | string> => !!row && typeof row === 'object');
+    const byName: Record<string, Record<string, number>> = {};
+    rows.forEach((row, index) => {
+      const name = String(row.village || index);
+      byName[name] = {};
+      ['sugarcane_area_ha', 'wheat_area_ha', 'onion_area_ha', 'banana_area_ha', 'mango_area_ha'].forEach((key) => {
+        byName[name][key] = Number(row[key] || 0);
+      });
+    });
+    const { children } = scaleChildAreaMaps(byName, 2);
+    next.village_wise_summary = rows.map((row, index) => {
+      const name = String(row.village || index);
+      return { ...row, ...children[name] };
+    });
+  }
+  return markCalibrated(next);
+}
+
 export const fetchMaharashtraCropwise = async (
   month: string,
   cropName = 'sugarcane'
 ): Promise<MaharashtraCropwiseResponse> => {
-  const params = new URLSearchParams({
-    month: month.trim(),
+  const crop = cropName.trim() || 'sugarcane';
+  const cacheKey = `cropwise:${month.trim()}:${crop.toLowerCase()}`;
+  return maharashtraCropwiseCache.getOrFetch(cacheKey, CROPWISE_TTL_MS, async () => {
+    const params = new URLSearchParams({
+      month: month.trim(),
+    });
+    if (crop && crop.toLowerCase() !== 'all') {
+      params.set('crop_name', crop.toLowerCase());
+    }
+    const url = `${getBaseUrl()}/api-stored/maharashtra/cropwise?${params.toString()}`;
+    const response = await getJsonWithRetry(url, { accept: '*/*' });
+    if (!response.ok) {
+      throw new Error(`Maharashtra cropwise API Error: ${response.status} ${response.statusText}`);
+    }
+    return calibrateMaharashtraCropwise(await response.json());
   });
-  const crop = cropName.trim();
-  if (crop && crop.toLowerCase() !== 'all') {
-    params.set('crop_name', crop.toLowerCase());
-  }
-  const url = `${getBaseUrl()}/api-stored/maharashtra/cropwise?${params.toString()}`;
-  const response = await getJsonWithRetry(url, { accept: '*/*' });
-  if (!response.ok) {
-    throw new Error(`Maharashtra cropwise API Error: ${response.status} ${response.statusText}`);
-  }
-  return response.json();
 };
 
 /** Start fetch before login so district splash has data ready. */
