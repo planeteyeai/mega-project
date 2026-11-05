@@ -1,5 +1,5 @@
 import React from 'react';
-import { CloudSun, Droplets, Download, FileSpreadsheet, FileText, Loader2, ArrowLeft, Map, LayoutDashboard, Landmark, Wind, Thermometer } from 'lucide-react';
+import { CloudSun, Droplets, Loader2, ArrowLeft, Map, LayoutDashboard, Landmark, Wind, Thermometer } from 'lucide-react';
 import type { WeatherDailyResponse } from '../services/analysisService';
 
 export type TopNavView = 'map' | 'dashboard' | 'state';
@@ -14,10 +14,6 @@ export interface TopNavBarProps {
   weatherLoading: boolean;
   weatherError: string | null;
   weatherLocation: string;
-  showDownloadMenu: boolean;
-  onToggleDownloadMenu: () => void;
-  onDownloadPdf: () => void;
-  onDownloadExcel: () => void;
   /** Return to district selection splash */
   onBack: () => void;
 }
@@ -54,10 +50,6 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
   weatherLoading,
   weatherError,
   weatherLocation,
-  showDownloadMenu,
-  onToggleDownloadMenu,
-  onDownloadPdf,
-  onDownloadExcel,
   onBack,
 }) => {
   const locationLabel =
@@ -186,51 +178,6 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
           </div>
         </div>
 
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            onClick={onToggleDownloadMenu}
-            className={`p-2 rounded-lg border transition-colors ${
-              isDarkMode
-                ? 'border-gray-600 bg-gray-800 text-gray-200 hover:bg-gray-700'
-                : 'border-emerald-100 bg-white text-gray-700 hover:bg-emerald-50'
-            }`}
-            title="Download"
-          >
-            <Download size={18} />
-          </button>
-          {showDownloadMenu && (
-            <>
-              <div className="fixed inset-0 z-[998]" onClick={onToggleDownloadMenu} />
-              <div
-                className={`absolute right-0 top-full mt-2 rounded-lg border shadow-xl overflow-hidden z-[1000] min-w-[120px] ${
-                  isDarkMode ? 'border-gray-600 bg-gray-900' : 'border-emerald-100 bg-white'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={onDownloadPdf}
-                  className={`w-full px-3 py-2 flex items-center justify-center gap-2 text-xs transition-colors ${
-                    isDarkMode ? 'text-gray-200 hover:bg-gray-800' : 'text-gray-900 hover:bg-emerald-50'
-                  }`}
-                >
-                  <FileText size={16} />
-                  PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={onDownloadExcel}
-                  className={`w-full px-3 py-2 flex items-center justify-center gap-2 text-xs border-t transition-colors ${
-                    isDarkMode ? 'text-gray-200 hover:bg-gray-800 border-gray-700' : 'text-gray-900 hover:bg-emerald-50 border-emerald-100'
-                  }`}
-                >
-                  <FileSpreadsheet size={16} />
-                  Excel
-                </button>
-              </div>
-            </>
-          )}
-        </div>
 {/* 
         <button
           type="button"

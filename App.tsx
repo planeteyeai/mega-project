@@ -686,7 +686,6 @@ const App: React.FC = () => {
   const [rightSidebarPanel, setRightSidebarPanel] = useState<SidebarPanel>('none');
 
   // State for download menu
-  const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
   const [showDashboardIndicesDownloadMenu, setShowDashboardIndicesDownloadMenu] = useState<boolean>(false);
 
   // State for split screen mode
@@ -7170,16 +7169,6 @@ const App: React.FC = () => {
         weatherLoading={weatherDailyLoading}
         weatherError={weatherDailyError}
         weatherLocation={getWeatherCardLocationName('left')}
-        showDownloadMenu={showDownloadMenu}
-        onToggleDownloadMenu={() => setShowDownloadMenu((p) => !p)}
-        onDownloadPdf={() => {
-          setShowDownloadMenu(false);
-          downloadChartPDF();
-        }}
-        onDownloadExcel={() => {
-          setShowDownloadMenu(false);
-          downloadChartExcel();
-        }}
         onBack={handleBackToDistricts}
       />
 
