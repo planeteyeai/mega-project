@@ -25,7 +25,7 @@ const isDevelopment =
 /** Production Railway host (shown in error messages). */
 const RAILWAY_HOST = 'https://web-production-72a7.up.railway.app';
 
-/** In local dev, route via Vite `/railway` proxy to avoid CORS. Override with VITE_API_BASE_URL. */
+/** Hosted API used in local dev and production. Override with VITE_API_BASE_URL. */
 const getBaseUrl = (): string => {
   const fromEnv =
     typeof import.meta !== 'undefined'
@@ -34,16 +34,13 @@ const getBaseUrl = (): string => {
   if (fromEnv?.trim()) {
     return fromEnv.trim().replace(/\/$/, '');
   }
-  if (isDevelopment && typeof window !== 'undefined') {
-    return `${window.location.origin}/railway`;
-  }
   return RAILWAY_HOST;
 };
 
 /**
  * Leaflet XYZ URL for Earth Engine or the classwise STAC tiles.
  * Relative `/classwise-tiles/...` paths are prefixed with the API base so the map
- * hits the backend (in dev, the Vite `/railway` proxy) instead of the frontend origin.
+ * hits the hosted backend instead of the frontend origin.
  */
 export function resolveMapTileUrl(url: unknown): string | null {
   if (typeof url !== 'string') return null;
@@ -3424,8 +3421,7 @@ export interface WeatherDailyResponse {
   daily: WeatherDailyItem[];
 }
 
-// Fetch Daily Weather (district/subdistrict/village)
-// In development we use Vite proxy (/railway -> Railway backend) to avoid CORS. In production we call BASE_URL directly.
+// Fetch Daily Weather (district/subdistrict/village) from the hosted API.
 const weatherDailyCache = createApiCache<WeatherDailyResponse>();
 
 /** 1 h — daily weather series for dashboard charts. */
@@ -3444,11 +3440,7 @@ const fetchWeatherDailyFromNetwork = async (
   }${villageQ ? `&village=${encodeURIComponent(villageQ)}` : ''}`;
 
   const tryUrl = (pathPrefix: string) => `${getBaseUrl()}${pathPrefix}/weather/daily?${query}`;
-  const proxyUrl = typeof window !== 'undefined' ? `${window.location.origin}/railway/weather/daily?${query}` : '';
-
-  const urlsToTry: string[] = isDevelopment && proxyUrl
-    ? [proxyUrl, tryUrl(''), tryUrl('/api')]   // dev: try proxy first (avoids CORS)
-    : [tryUrl(''), tryUrl('/api')];
+  const urlsToTry: string[] = [tryUrl(''), tryUrl('/api')];
 
   let lastError: Error | null = null;
   for (const url of urlsToTry) {
@@ -3561,11 +3553,7 @@ export const fetchWindDirect = async (
   const query = `district=${encodeURIComponent(district)}${subdistrict ? `&subdistrict=${encodeURIComponent(subdistrict)}` : ''}${village ? `&village=${encodeURIComponent(village)}` : ''}`;
 
   const tryUrl = (pathPrefix: string) => `${getBaseUrl()}${pathPrefix}/weather/wind-direct?${query}`;
-  const proxyUrl = typeof window !== 'undefined' ? `${window.location.origin}/railway/weather/wind-direct?${query}` : '';
-
-  const urlsToTry: string[] = isDevelopment && proxyUrl
-    ? [proxyUrl, tryUrl(''), tryUrl('/api')]
-    : [tryUrl(''), tryUrl('/api')];
+  const urlsToTry: string[] = [tryUrl(''), tryUrl('/api')];
 
   let lastError: Error | null = null;
   for (const url of urlsToTry) {

@@ -8549,6 +8549,42 @@ const App: React.FC = () => {
                         });
                         return hasValues ? { rows, seriesKeys, seriesColors } : { rows: [], seriesKeys: [], seriesColors: {} };
                       })();
+                      const downloadAnalysisTrendExcel = (
+                        title: string,
+                        rows: Array<Record<string, string | number>>,
+                        seriesKeys: string[],
+                        dateLabel: string | null
+                      ) => {
+                        if (!rows.length || !seriesKeys.length) return;
+                        const sheetRows: (string | number)[][] = [
+                          ['Nearlive Crop Monitoring'],
+                          [getLocationString()],
+                          [title],
+                          ['Dates', dateLabel ?? 'all dates'],
+                          ['Unit', 'ha'],
+                          [],
+                          ['Date', ...seriesKeys.map((k) => `${String(k).replace(/_/g, ' ')} (ha)`)],
+                        ];
+                        rows.forEach((row) => {
+                          sheetRows.push([
+                            String(row.label ?? ''),
+                            ...seriesKeys.map((k) => {
+                              const amount = Number(row[k]);
+                              return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0;
+                            }),
+                          ]);
+                        });
+                        const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+                        ws['!cols'] = [{ wch: 16 }, ...seriesKeys.map(() => ({ wch: 18 }))];
+                        const wb = XLSX.utils.book_new();
+                        const sheetName = title.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Trend';
+                        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+                        const slug = (value: string) => value.trim().replace(/[^\w.-]+/g, '-') || 'export';
+                        XLSX.writeFile(
+                          wb,
+                          `${slug(title)}-${slug(selectedDistrict || 'location')}-${slug(dateLabel ?? 'all-dates')}.xlsx`
+                        );
+                      };
                       const pestCategories = (() => {
                         const keys = new Set<string>();
                         (pestStoredSeries || []).forEach((item) => {
@@ -8614,18 +8650,33 @@ const App: React.FC = () => {
                                 })}
                               </div>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => setFullscreenAnalysisTrendCard(isFullscreen ? null : cardKey)}
-                              className={`h-7 w-7 rounded-md border flex items-center justify-center transition-colors ${
-                                isDarkMode
-                                  ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600'
-                                  : 'border-emerald-200 bg-white text-gray-700 hover:bg-emerald-50'
-                              }`}
-                              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                            >
-                              {isFullscreen ? <MdFullscreenExit size={15} /> : <Maximize2 size={14} />}
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => downloadAnalysisTrendExcel(title, chartData, seriesKeys, selectedDate)}
+                                disabled={chartData.length === 0 || seriesKeys.length === 0}
+                                className={`h-7 w-7 rounded-md border flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                  isDarkMode
+                                    ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                    : 'border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50'
+                                }`}
+                                title={`Download ${title} as Excel`}
+                              >
+                                <Download size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFullscreenAnalysisTrendCard(isFullscreen ? null : cardKey)}
+                                className={`h-7 w-7 rounded-md border flex items-center justify-center transition-colors ${
+                                  isDarkMode
+                                    ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                    : 'border-emerald-200 bg-white text-gray-700 hover:bg-emerald-50'
+                                }`}
+                                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                              >
+                                {isFullscreen ? <MdFullscreenExit size={15} /> : <Maximize2 size={14} />}
+                              </button>
+                            </div>
                           </div>
                           {data.length > 0 && seriesKeys.length > 0 ? (
                             <>
@@ -8782,11 +8833,319 @@ const App: React.FC = () => {
                             : 'No stored pest data for this location',
                         },
                       ] as const;
+                      const downloadAllAnalysisExcel = () => {
+                        const month = predictAreaMonthInput.trim();
+                        const district = selectedDistrict || '';
+                        const subdistrict = selectedSubdistrict || '';
+                        const village = selectedVillage || '';
+                        const pretty = (value: string) =>
+                          value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+                        const amount = (value: unknown) => {
+                          const parsed = Number(value);
+                          return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
+                        };
+                        const orderedCrops = (labels: string[]) => [
+                          ...CROP_AREA_EXCEL_ORDER.filter((crop) => labels.includes(crop)),
+                          ...labels.filter((label) => !CROP_AREA_EXCEL_ORDER.includes(label)),
+                        ];
+                        const pushSheet = (
+                          wb: XLSX.WorkBook,
+                          name: string,
+                          rows: (string | number)[][],
+                          headerRowIndex: number,
+                          colWidths: number[],
+                          dataRowCount: number
+                        ) => {
+                          const ws = XLSX.utils.aoa_to_sheet(rows);
+                          ws['!cols'] = colWidths.map((wch) => ({ wch }));
+                          const ref = ws['!ref'];
+                          if (ref && dataRowCount > 0 && headerRowIndex >= 0) {
+                            const range = XLSX.utils.decode_range(ref);
+                            for (let r = headerRowIndex + 1; r <= range.e.r; r++) {
+                              for (let c = 1; c <= range.e.c; c++) {
+                                const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                                if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
+                              }
+                            }
+                            ws['!views'] = [{
+                              state: 'frozen',
+                              ySplit: headerRowIndex + 1,
+                              xSplit: 1,
+                              topLeftCell: XLSX.utils.encode_cell({ r: headerRowIndex + 1, c: 1 }),
+                            }];
+                            ws['!autofilter'] = {
+                              ref: XLSX.utils.encode_range({
+                                s: { r: headerRowIndex, c: 0 },
+                                e: { r: headerRowIndex + dataRowCount, c: range.e.c },
+                              }),
+                            };
+                          }
+                          XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+                        };
+                        const locationRows = (): (string | number)[][] => {
+                          const rows: (string | number)[][] = [
+                            ['Nearlive Crop Monitoring'],
+                            ['District', district],
+                          ];
+                          if (subdistrict) rows.push(['Subdistrict', subdistrict]);
+                          if (village) rows.push(['Village', village]);
+                          if (month) rows.push(['Month', month]);
+                          rows.push(['Unit', 'ha']);
+                          rows.push([]);
+                          return rows;
+                        };
+
+                        try {
+                          const wb = XLSX.utils.book_new();
+                          wb.Props = {
+                            Title: 'Nearlive Crop Monitoring',
+                            Subject: `Crop areas ${month || ''}`.trim(),
+                          };
+
+                          const districtLabels = orderedCrops(trendCropAreaTotals.map((row) => row.label));
+                          const districtByLabel = new Map(trendCropAreaTotals.map((row) => [row.label, amount(row.ha)]));
+                          const districtRows: (string | number)[][] = [
+                            ['Nearlive Crop Monitoring'],
+                            ['District Crop Area'],
+                            ['District', district],
+                            ['Month', month],
+                            ['Unit', 'ha'],
+                            [],
+                          ];
+                          const districtHeader = districtRows.length;
+                          districtRows.push(['Crop', 'Area (ha)']);
+                          let districtTotal = 0;
+                          districtLabels.forEach((label) => {
+                            const ha = districtByLabel.get(label) ?? 0;
+                            districtTotal += ha;
+                            districtRows.push([label, ha]);
+                          });
+                          if (districtLabels.length) {
+                            districtRows.push(['Total', Number(districtTotal.toFixed(2))]);
+                          } else {
+                            districtRows.push(['No district crop area for this location']);
+                          }
+                          pushSheet(wb, 'District Crop Area', districtRows, districtHeader, [28, 16], districtLabels.length);
+
+                          const subdistrictCrops = orderedCrops(trendCropAreaRegionKeys);
+                          const subdistrictRows: (string | number)[][] = [
+                            ['Nearlive Crop Monitoring'],
+                            ['Subdistrict Crop Area'],
+                            ['District', district],
+                            ['Month', month],
+                            ['Unit', 'ha'],
+                            [],
+                          ];
+                          const subdistrictHeader = subdistrictRows.length;
+                          if (trendCropAreaByRegion.length && subdistrictCrops.length) {
+                            subdistrictRows.push(['Subdistrict', ...subdistrictCrops.map((crop) => `${crop} (ha)`), 'Total (ha)']);
+                            const subdistrictTotals = subdistrictCrops.map(() => 0);
+                            let subdistrictGrand = 0;
+                            trendCropAreaByRegion.forEach((row) => {
+                              const values = subdistrictCrops.map((crop) => amount(row[crop]));
+                              const rowTotal = Number(values.reduce((sum, value) => sum + value, 0).toFixed(2));
+                              values.forEach((value, index) => {
+                                subdistrictTotals[index] += value;
+                              });
+                              subdistrictGrand += rowTotal;
+                              subdistrictRows.push([String(row.label ?? ''), ...values, rowTotal]);
+                            });
+                            subdistrictRows.push([
+                              'Total',
+                              ...subdistrictTotals.map((value) => Number(value.toFixed(2))),
+                              Number(subdistrictGrand.toFixed(2)),
+                            ]);
+                          } else {
+                            subdistrictRows.push(['Subdistrict', 'Area (ha)']);
+                            subdistrictRows.push(['No subdistrict crop area for this district']);
+                          }
+                          pushSheet(
+                            wb,
+                            'Subdistrict Crop Area',
+                            subdistrictRows,
+                            subdistrictHeader,
+                            [28, ...subdistrictCrops.map(() => 16), 14],
+                            trendCropAreaByRegion.length
+                          );
+
+                          const villageCrops = orderedCrops(trendVillageCropAreaKeys);
+                          const villageRows: (string | number)[][] = [
+                            ['Nearlive Crop Monitoring'],
+                            ['Village Crop Area'],
+                            ['District', district],
+                            ['Subdistrict', subdistrict || 'Not selected'],
+                            ['Month', month],
+                            ['Unit', 'ha'],
+                            [],
+                          ];
+                          const villageHeader = villageRows.length;
+                          if (subdistrict && trendVillageCropArea.length && villageCrops.length) {
+                            villageRows.push(['Village', ...villageCrops.map((crop) => `${crop} (ha)`), 'Total (ha)']);
+                            const villageTotals = villageCrops.map(() => 0);
+                            let villageGrand = 0;
+                            trendVillageCropArea.forEach((row) => {
+                              const values = villageCrops.map((crop) => amount(row[crop]));
+                              const rowTotal = Number(values.reduce((sum, value) => sum + value, 0).toFixed(2));
+                              values.forEach((value, index) => {
+                                villageTotals[index] += value;
+                              });
+                              villageGrand += rowTotal;
+                              villageRows.push([String(row.label ?? ''), ...values, rowTotal]);
+                            });
+                            villageRows.push([
+                              'Total',
+                              ...villageTotals.map((value) => Number(value.toFixed(2))),
+                              Number(villageGrand.toFixed(2)),
+                            ]);
+                          } else {
+                            villageRows.push(['Village', 'Area (ha)']);
+                            villageRows.push([
+                              subdistrict
+                                ? 'No village crop area for this subdistrict'
+                                : 'Select a subdistrict to include village crop area',
+                            ]);
+                          }
+                          pushSheet(
+                            wb,
+                            'Village Crop Area',
+                            villageRows,
+                            villageHeader,
+                            [28, ...villageCrops.map(() => 16), 14],
+                            subdistrict ? trendVillageCropArea.length : 0
+                          );
+
+                          const appendTrendSheet = (
+                            name: string,
+                            title: string,
+                            data: Array<Record<string, string | number>>,
+                            seriesKeys: string[]
+                          ) => {
+                            const rows = locationRows();
+                            rows.splice(1, 0, [title]);
+                            const headerRowIndex = rows.length;
+                            rows.push(['Date', ...seriesKeys.map((key) => `${pretty(key)} (ha)`), 'Total (ha)']);
+                            if (!data.length || !seriesKeys.length) {
+                              rows.push(['No data for this location']);
+                              pushSheet(wb, name, rows, headerRowIndex, [18, 22], 0);
+                              return;
+                            }
+                            data.forEach((row) => {
+                              const values = seriesKeys.map((key) => amount(row[key]));
+                              const total = Number(values.reduce((sum, value) => sum + value, 0).toFixed(2));
+                              rows.push([String(row.label ?? ''), ...values, total]);
+                            });
+                            pushSheet(
+                              wb,
+                              name,
+                              rows,
+                              headerRowIndex,
+                              [16, ...seriesKeys.map(() => 18), 14],
+                              data.length
+                            );
+                          };
+
+                          appendTrendSheet('Growth', 'Growth', growthTrend.rows, growthTrend.seriesKeys);
+                          appendTrendSheet('Water uptake', 'Water uptake', waterTrend.rows, waterTrend.seriesKeys);
+                          appendTrendSheet('Soil moisture', 'Soil moisture', soilTrend.rows, soilTrend.seriesKeys);
+
+                          const pestOrder = ['healthy', 'chewing', 'fungi', 'sucking', 'wilt', 'soilborne'];
+                          const pestKeys = new Set<string>();
+                          (pestStoredSeries || []).forEach((item) => {
+                            Object.keys((item as any)?.response_data?.hierarchy || {}).forEach((key) => pestKeys.add(key));
+                          });
+                          const pestCats = [
+                            ...pestOrder.filter((key) => pestKeys.has(key)),
+                            ...Array.from(pestKeys).filter((key) => !pestOrder.includes(key)),
+                          ];
+                          const pestItems = [...(pestStoredSeries || [])].sort((a, b) => a.year_month.localeCompare(b.year_month));
+                          const pestRows = locationRows();
+                          pestRows.splice(1, 0, ['Pest']);
+                          const pestHeader = pestRows.length;
+                          pestRows.push(['Date', ...pestCats.map((key) => `${pretty(key)} (ha)`), 'Total (ha)']);
+                          const childKeysByCategory: Record<string, string[]> = {};
+                          pestCats.forEach((key) => {
+                            childKeysByCategory[key] = [];
+                          });
+                          pestItems.forEach((item) => {
+                            const hierarchy = (item as any)?.response_data?.hierarchy || {};
+                            pestCats.forEach((key) => {
+                              Object.keys(hierarchy[key]?.children || {}).forEach((child) => {
+                                if (!childKeysByCategory[key].includes(child)) childKeysByCategory[key].push(child);
+                              });
+                            });
+                          });
+                          if (pestItems.length && pestCats.length) {
+                            pestItems.forEach((item) => {
+                              const hierarchy = (item as any)?.response_data?.hierarchy || {};
+                              const values = pestCats.map((key) => amount(hierarchy[key]?.total_area_ha));
+                              const total = Number(values.reduce((sum, value) => sum + value, 0).toFixed(2));
+                              pestRows.push([monthLabel(item.year_month), ...values, total]);
+                            });
+                          } else {
+                            pestRows.push(['No pest data for this location']);
+                          }
+                          const hasPestChildren = pestCats.some((key) => childKeysByCategory[key].length > 0);
+                          if (hasPestChildren) {
+                            pestRows.push([]);
+                            pestRows.push(['Class breakdown']);
+                            pestRows.push(['Date', 'Category', 'Class', 'Area (ha)']);
+                            pestItems.forEach((item) => {
+                              const hierarchy = (item as any)?.response_data?.hierarchy || {};
+                              const label = monthLabel(item.year_month);
+                              pestCats.forEach((key) => {
+                                const node = hierarchy[key] || {};
+                                pestRows.push([label, pretty(key), 'Total', amount(node.total_area_ha)]);
+                                childKeysByCategory[key].forEach((child) => {
+                                  const childNode = node?.children?.[child] || {};
+                                  pestRows.push([
+                                    label,
+                                    pretty(key),
+                                    pretty(child),
+                                    amount(childNode.area_ha ?? childNode.total_area_ha),
+                                  ]);
+                                });
+                              });
+                            });
+                          }
+                          pushSheet(
+                            wb,
+                            'Pest',
+                            pestRows,
+                            pestHeader,
+                            [16, ...pestCats.map(() => 16), 14],
+                            pestItems.length && pestCats.length ? pestItems.length : 0
+                          );
+
+                          const slug = (value: string) => value.trim().replace(/[^\w.-]+/g, '-') || 'export';
+                          XLSX.writeFile(
+                            wb,
+                            `Nearlive-Crop-Monitoring-${slug(district)}-${slug(month || 'all')}.xlsx`
+                          );
+                        } catch (error) {
+                          console.error('Error generating analysis Excel:', error);
+                          alert('Failed to generate Excel file');
+                        }
+                      };
                       const fullscreenTrend = trendCards.find((c) => c.key === fullscreenAnalysisTrendCard);
                       return (
                         <div id="analysis-trends-cards" className="w-full px-4 md:px-6 space-y-6">
-                          <div className={`text-xl font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}>
-                            crop-areas{predictAreaMonthInput ? ` · ${predictAreaMonthInput}` : ''}
+                          <div className="flex items-center justify-between gap-3">
+                            <div className={`text-xl font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}>
+                              crop-areas{predictAreaMonthInput ? ` · ${predictAreaMonthInput}` : ''}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={downloadAllAnalysisExcel}
+                              disabled={trendCropAreaLoading || trendVillageCropAreaLoading}
+                              className={`h-8 w-8 rounded-md border flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                isDarkMode
+                                  ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                  : 'border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50'
+                              }`}
+                              title="Download District, Subdistrict, Village, Growth, Water uptake, Soil moisture, and Pest as Excel"
+                            >
+                              <Download size={16} />
+                            </button>
                           </div>
                           {trendCropAreaLoading ? (
                             <div className={`rounded-lg border p-8 flex items-center justify-center gap-3 ${
