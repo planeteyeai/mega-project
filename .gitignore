@@ -111,3 +111,6 @@ desktop.ini
 # ── Logs ──────────────────────────────────────────────────────────────────
 *.log
 logs/
+
+# ── Pre-commit / security scan reports ────────────────────────────────────
+security-scan-report*.txt
