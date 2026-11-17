@@ -2,14 +2,15 @@
  *
  * Maharashtra sugarcane is about 15 lakh ha. District shares follow published
  * sugar-belt ranking (Solapur largest at ~1.17 lakh ha, then Kolhapur, Pune,
- * Ahmednagar, Sangli, Satara). Village / subdistrict values still sum to those
+ * Ahilyanagar, Sangli, Satara). Village / subdistrict values still sum to those
  * district totals, and the same numbers are used on refresh.
  */
 export const REALISTIC_STATE_TARGET_HA = 1_500_000;
 export const REALISTIC_STATE_RAW_HA = 4_160_993.69;
-export const REALISTIC_CROP_AREA_SCALE = REALISTIC_STATE_TARGET_HA / REALISTIC_STATE_RAW_HA;
+/** Keep at 1 so leftover helpers never invent demo totals. */
+export const REALISTIC_CROP_AREA_SCALE = 1;
 export const SOLAPUR_HA = 117_000;
-export const AREA_CALIBRATION_ID = 'realistic_1_5m_v5';
+export const AREA_CALIBRATION_ID = 'stored_raw_v1';
 
 const MONTH_SEASON: Record<number, number> = {
   1: 1.018,

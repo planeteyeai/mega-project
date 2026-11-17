@@ -8,7 +8,15 @@ export interface ApiCache<T> {
   peek: (key: string) => T | null;
   isFresh: (key: string) => boolean;
   set: (key: string, data: T, ttlMs: number) => void;
+  clear: () => void;
   getOrFetch: (key: string, ttlMs: number, fetcher: () => Promise<T>) => Promise<T>;
+}
+
+const ALL_CACHES = new Set<{ clear: () => void }>();
+
+/** Drop every in-memory API cache (used after admin-name renames). */
+export function clearAllApiCaches(): void {
+  ALL_CACHES.forEach((cache) => cache.clear());
 }
 
 /** In-memory TTL cache with in-flight request deduplication. */
@@ -29,6 +37,11 @@ export function createApiCache<T>(): ApiCache<T> {
 
   const set = (key: string, data: T, ttlMs: number) => {
     store.set(key, { data, expiresAt: Date.now() + ttlMs });
+  };
+
+  const clear = () => {
+    store.clear();
+    inflight.clear();
   };
 
   const getOrFetch = async (key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> => {
@@ -53,5 +66,7 @@ export function createApiCache<T>(): ApiCache<T> {
     return promise;
   };
 
-  return { getFresh, peek, isFresh, set, getOrFetch };
+  const cache = { getFresh, peek, isFresh, set, clear, getOrFetch };
+  ALL_CACHES.add(cache);
+  return cache;
 }

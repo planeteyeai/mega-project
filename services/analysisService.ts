@@ -1,18 +1,13 @@
 // Service for fetching analysis data (Growth, Water Uptake, Soil Moisture)
 import { Coordinate } from '../types';
-import { createApiCache } from '../utils/apiCache';
+import { clearAllApiCaches, createApiCache } from '../utils/apiCache';
 import {
-  districtTargetsFor,
-  getChildTarget,
-  getDistrictAreaFactor,
-  getDistrictTarget,
-  isAreaCalibrated,
-  markCalibrated,
-  rememberChildHa,
-  rememberDistrictFactor,
-  scaleChildAreaMaps,
-  scaleCropAreaHa,
-} from '../utils/realisticCropArea';
+  ADMIN_NAMES_CACHE_VERSION,
+  officialDistrictDisplay,
+  officialSubdistrictDisplay,
+  withOfficialDistrictName,
+} from '../utils/officialAdminNames';
+import { markCalibrated } from '../utils/realisticCropArea';
 
 const isDevelopment =
   Boolean(import.meta.env.DEV) ||
@@ -25,7 +20,7 @@ const isDevelopment =
 /** Production Railway host (shown in error messages). */
 const RAILWAY_HOST = 'https://web-production-72a7.up.railway.app';
 
-/** Hosted API used in local dev and production. Override with VITE_API_BASE_URL. */
+/** Hosted API used in production. Localhost uses the Vite proxy / local backend. */
 const getBaseUrl = (): string => {
   const fromEnv =
     typeof import.meta !== 'undefined'
@@ -33,6 +28,13 @@ const getBaseUrl = (): string => {
       : undefined;
   if (fromEnv?.trim()) {
     return fromEnv.trim().replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || /^192\.168\./.test(host)) {
+      // Prefer Vite /railway proxy so VITE_API_PROXY_TARGET controls the backend.
+      return '/railway';
+    }
   }
   return RAILWAY_HOST;
 };
@@ -122,12 +124,15 @@ export interface DistrictsResponse {
 // Fetch districts with full data (including geometry)
 export const fetchDistricts = async (): Promise<DistrictItem[]> => {
   try {
+    clearAllApiCaches();
     const url = `${getBaseUrl()}/districts`;
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'accept': 'application/json'
-      }
+        'accept': 'application/json',
+        'cache-control': 'no-cache',
+      },
+      cache: 'no-store',
     });
 
     if (!response.ok) {
@@ -138,13 +143,13 @@ export const fetchDistricts = async (): Promise<DistrictItem[]> => {
     const districtsArray = data.districts || [];
 
     // Handle both formats: array of strings or array of objects
-    if (districtsArray.length > 0 && typeof districtsArray[0] === 'object') {
-      // Return full objects with geometry
-      return districtsArray as DistrictItem[];
-    } else {
-      // Convert strings to objects (no geometry available)
-      return (districtsArray as string[]).map(district => ({ district }));
-    }
+    const rows =
+      districtsArray.length > 0 && typeof districtsArray[0] === 'object'
+        ? (districtsArray as DistrictItem[])
+        : (districtsArray as string[]).map((district) => ({ district }));
+    return rows
+      .map((row) => ({ ...row, district: officialDistrictDisplay(row.district) }))
+      .sort((a, b) => a.district.localeCompare(b.district));
   } catch (error) {
     if (error instanceof TypeError && error.message.includes('fetch')) {
       throw new Error(`Network error: Unable to connect to ${getBaseUrl()}/districts`);
@@ -169,12 +174,17 @@ export interface SubdistrictsResponse {
 
 export const fetchSubdistricts = async (district: string): Promise<SubdistrictItem[]> => {
   try {
-    const response = await fetch(`${getBaseUrl()}/subdistricts?district=${encodeURIComponent(district)}`, {
-      method: 'GET',
-      headers: {
-        'accept': 'application/json'
+    const response = await fetch(
+      `${getBaseUrl()}/subdistricts?district=${encodeURIComponent(officialDistrictDisplay(district))}`,
+      {
+        method: 'GET',
+        headers: {
+          accept: 'application/json',
+          'cache-control': 'no-cache',
+        },
+        cache: 'no-store',
       }
-    });
+    );
 
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -183,11 +193,12 @@ export const fetchSubdistricts = async (district: string): Promise<SubdistrictIt
     const data: SubdistrictsResponse = await response.json();
     const subdistrictsArray = data.subdistricts || [];
 
-    // Return subdistricts with geometry
-    return subdistrictsArray.map(item => ({
-      subdistrict: item.subdistrict,
-      geometry: item.geometry
-    }));
+    return subdistrictsArray
+      .map((item) => ({
+        subdistrict: officialSubdistrictDisplay(item.subdistrict),
+        geometry: item.geometry,
+      }))
+      .sort((a, b) => a.subdistrict.localeCompare(b.subdistrict));
   } catch (error) {
     if (error instanceof TypeError && error.message.includes('fetch')) {
       throw new Error(`Network error: Unable to connect to ${getBaseUrl()}/subdistricts`);
@@ -1263,7 +1274,7 @@ export const fetchPredictAreaCropAreas = async (
   cropName?: string
 ): Promise<PredictAreaCropAreasResponse> => {
   const crop = (cropName || '').trim();
-  const cacheKey = `crop-areas:v5:${district.trim().toLowerCase()}:${(subdistrict || '').trim().toLowerCase()}:${month.trim()}:${crop.toLowerCase() || 'all'}`;
+  const cacheKey = `crop-areas:${ADMIN_NAMES_CACHE_VERSION}:${district.trim().toLowerCase()}:${(subdistrict || '').trim().toLowerCase()}:${month.trim()}:${crop.toLowerCase() || 'all'}`;
   return cropAreasCache.getOrFetch(cacheKey, CROP_AREAS_TTL_MS, async () => {
     const params = new URLSearchParams({
       district: district.trim(),
@@ -1981,7 +1992,7 @@ export const fetchStoredDistrictsLatest = async (
   includeResponse = true
 ): Promise<StoredDistrictsLatestResponse> => {
   const m = (month || getCurrentPredictAreaMonth()).trim();
-  const cacheKey = `districts-latest:v5:${m}:${includeResponse ? '1' : '0'}`;
+  const cacheKey = `districts-latest:${ADMIN_NAMES_CACHE_VERSION}:${m}:${includeResponse ? '1' : '0'}`;
   return districtsLatestCache.getOrFetch(cacheKey, DISTRICTS_LATEST_TTL_MS, async () => {
     const params = new URLSearchParams({
       month: m,
@@ -2046,175 +2057,51 @@ const maharashtraCropwiseCache = createApiCache<MaharashtraCropwiseResponse>();
 const CROPWISE_TTL_MS = 3 * 60 * 60 * 1000;
 
 function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): MaharashtraCropwiseResponse {
-  if (isAreaCalibrated(data)) return data;
-  const rawDistricts = data.districts || [];
-  const presentNames = rawDistricts
-    .filter((district) => district.has_data)
-    .map((district) => district.district);
-  const assigned = districtTargetsFor(presentNames, data.month);
-  const totals: Record<string, number> = {};
-  const districts = rawDistricts.map((district) => {
-    const rawAreas = district.crop_areas_ha || {};
-    const rawTotal = Object.values(rawAreas).reduce((sum, value) => sum + Number(value || 0), 0);
-    const target = assigned[district.district] || 0;
-    const cropKeys = Object.keys(rawAreas);
-    const parts = cropKeys.length
-      ? scaleChildAreaMaps({ [district.district]: rawAreas }, 2, district.has_data ? target : 0)
-      : { children: { [district.district]: {} }, totals: {} };
-    const areas = parts.children[district.district] || {};
-    const total = Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100;
-    if (district.has_data && target > 0) {
-      rememberDistrictFactor(district.district, rawTotal, target, data.month);
-    }
-    Object.entries(areas).forEach(([crop, ha]) => {
-      totals[crop] = Math.round(((totals[crop] || 0) + Number(ha || 0)) * 100) / 100;
-    });
-    return {
-      ...district,
-      crop_areas_ha: areas,
-      total_crop_area_ha: total,
-    };
-  });
-  return markCalibrated({
-    ...data,
-    crop_areas_ha: totals,
-    total_crop_area_ha: Math.round(
-      Object.values(totals).reduce((sum, value) => sum + Number(value || 0), 0) * 100
-    ) / 100,
-    districts,
-  });
+  const districts = (data.districts || []).map((row) => withOfficialDistrictName(row));
+  return markCalibrated({ ...data, districts });
 }
 
-function mapTotalHa(areas: Record<string, number> | undefined): number {
-  return Math.round(
-    Object.values(areas || {}).reduce((sum, value) => sum + Number(value || 0), 0) * 100
-  ) / 100;
+function remapAreaMap(
+  areas: Record<string, Record<string, number>> | undefined,
+  rename: (name: string) => string
+): Record<string, Record<string, number>> | undefined {
+  if (!areas) return areas;
+  const out: Record<string, Record<string, number>> = {};
+  Object.entries(areas).forEach(([name, value]) => {
+    out[rename(name)] = value;
+  });
+  return out;
 }
 
 function calibrateCropAreasResponse(data: PredictAreaCropAreasResponse): PredictAreaCropAreasResponse {
-  if (isAreaCalibrated(data)) return data;
-  const month = data.month;
-  if (data.village_wise) {
-    const rawTotal = mapTotalHa(
-      Object.fromEntries(
-        Object.entries(data.village_wise).map(([name, row]) => [name, mapTotalHa(row)])
-      )
-    );
-    const { children, totals } = scaleChildAreaMaps(
-      data.village_wise,
-      2,
-      getChildTarget(
-        data.district,
-        data.subdistrict || '',
-        month,
-        Math.round(rawTotal * getDistrictAreaFactor(data.district, month) * 100) / 100
-      )
-    );
-    return markCalibrated({ ...data, village_wise: children, totals });
-  }
-  if (data.subdistrict_wise) {
-    const { children, totals } = scaleChildAreaMaps(
-      data.subdistrict_wise,
-      2,
-      getDistrictTarget(data.district, month)
-    );
-    Object.entries(children).forEach(([subdistrict, areas]) => {
-      rememberChildHa(data.district, subdistrict, mapTotalHa(areas), month);
-    });
-    return markCalibrated({ ...data, subdistrict_wise: children, totals });
-  }
-  const { totals } = scaleChildAreaMaps({ totals: data.totals || {} }, 2, getDistrictTarget(data.district, month));
-  return markCalibrated({ ...data, totals });
+  return markCalibrated({
+    ...data,
+    district: officialDistrictDisplay(data.district),
+    subdistrict: data.subdistrict
+      ? officialSubdistrictDisplay(data.subdistrict)
+      : data.subdistrict,
+    subdistrict_wise: remapAreaMap(data.subdistrict_wise, officialSubdistrictDisplay),
+    village_wise: data.village_wise,
+  });
 }
 
 function calibrateStoredDistrictCropwise(
   block: StoredDistrictCropwiseArea | null | undefined,
-  monthHint?: string
+  _monthHint?: string
 ): StoredDistrictCropwiseArea | null | undefined {
-  if (!block || isAreaCalibrated(block)) return block;
-  const month = block.year_month || monthHint;
-  const districtTarget = block.district ? getDistrictTarget(block.district, month) : undefined;
-  const subdistricts = block.subdistrict_wise
-    ? scaleChildAreaMaps(
-        block.subdistrict_wise as Record<string, Record<string, number>>,
-        2,
-        districtTarget
-      )
-    : null;
-  if (block.district && subdistricts?.children) {
-    Object.entries(subdistricts.children).forEach(([subdistrict, areas]) => {
-      rememberChildHa(
-        block.district || '',
-        subdistrict,
-        Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100,
-        month
-      );
-    });
-  }
-  const areas =
-    subdistricts?.totals ||
-    scaleChildAreaMaps({ all: block.crop_areas_ha || {} }, 2, districtTarget).totals;
+  if (!block) return block;
   return markCalibrated({
     ...block,
-    crop_areas_ha: areas,
-    subdistrict_wise: subdistricts?.children,
-    total_crop_area_ha:
-      Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100,
+    district: block.district ? officialDistrictDisplay(block.district) : block.district,
+    subdistrict_wise: remapAreaMap(
+      block.subdistrict_wise as Record<string, Record<string, number>> | undefined,
+      officialSubdistrictDisplay
+    ),
   });
-}
-
-function scalePredictCropData(crop: PredictAreaCropData | undefined): PredictAreaCropData | undefined {
-  if (!crop || typeof crop !== 'object') return crop;
-  const fields = crop.identified_field_boundaries || {};
-  const keys = Object.keys(fields);
-  const scaledFields = keys.length
-    ? scaleChildAreaMaps(
-        Object.fromEntries(keys.map((key) => [key, { ha: Number(fields[key]?.field_area_ha || 0) }])),
-        4
-      )
-    : null;
-  const identified = { ...fields };
-  if (scaledFields) {
-    keys.forEach((key) => {
-      identified[key] = { ...fields[key], field_area_ha: Number(scaledFields.children[key]?.ha || 0) };
-    });
-  }
-  const fieldSum = keys.reduce((sum, key) => sum + Number(identified[key]?.field_area_ha || 0), 0);
-  return {
-    ...crop,
-    crop_area_ha: fieldSum > 0 ? Math.round(fieldSum * 10000) / 10000 : scaleCropAreaHa(Number(crop.crop_area_ha || 0)),
-    identified_field_boundaries: identified,
-  };
 }
 
 function calibratePredictAreaResponse(data: PredictAreaResponse): PredictAreaResponse {
-  if (isAreaCalibrated(data)) return data;
-  const next: PredictAreaResponse = { ...data };
-  (['sugarcane', 'wheat', 'onion', 'banana', 'mango'] as const).forEach((crop) => {
-    const scaled = scalePredictCropData(next[crop] as PredictAreaCropData | undefined);
-    if (scaled) next[crop] = scaled;
-  });
-  if (typeof next.sugarcane_area_ha === 'number') {
-    const cane = next.sugarcane as PredictAreaCropData | undefined;
-    next.sugarcane_area_ha = cane?.crop_area_ha ?? scaleCropAreaHa(next.sugarcane_area_ha);
-  }
-  if (Array.isArray(next.village_wise_summary)) {
-    const rows = next.village_wise_summary.filter((row): row is Record<string, number | string> => !!row && typeof row === 'object');
-    const byName: Record<string, Record<string, number>> = {};
-    rows.forEach((row, index) => {
-      const name = String(row.village || index);
-      byName[name] = {};
-      ['sugarcane_area_ha', 'wheat_area_ha', 'onion_area_ha', 'banana_area_ha', 'mango_area_ha'].forEach((key) => {
-        byName[name][key] = Number(row[key] || 0);
-      });
-    });
-    const { children } = scaleChildAreaMaps(byName, 2);
-    next.village_wise_summary = rows.map((row, index) => {
-      const name = String(row.village || index);
-      return { ...row, ...children[name] };
-    });
-  }
-  return markCalibrated(next);
+  return markCalibrated(data);
 }
 
 export const fetchMaharashtraCropwise = async (
@@ -2222,7 +2109,7 @@ export const fetchMaharashtraCropwise = async (
   cropName = 'sugarcane'
 ): Promise<MaharashtraCropwiseResponse> => {
   const crop = cropName.trim() || 'sugarcane';
-  const cacheKey = `cropwise:v5:${month.trim()}:${crop.toLowerCase()}`;
+  const cacheKey = `cropwise:${ADMIN_NAMES_CACHE_VERSION}:${month.trim()}:${crop.toLowerCase()}`;
   return maharashtraCropwiseCache.getOrFetch(cacheKey, CROPWISE_TTL_MS, async () => {
     const params = new URLSearchParams({
       month: month.trim(),

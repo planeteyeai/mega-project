@@ -18,6 +18,7 @@ import {
   type StoredDistrictAnalysisBlock,
   type StoredDistrictLatestItem,
 } from '../services/analysisService';
+import { officialDistrictDisplay } from '../utils/officialAdminNames';
 
 export interface LoginTransitionFlashProps {
   districts: Array<{ district: string }>;
@@ -158,7 +159,7 @@ function buildClasswiseGrouped(
 
   const rows: GroupedRow[] = items
     .map((d) => {
-      const name = d.district || '';
+      const name = officialDistrictDisplay(d.district || '');
       const row: GroupedRow = { district: name, short: shortDistrict(name) };
       keys.forEach((key) => {
         row[key] = 0;
@@ -212,7 +213,7 @@ function buildPestGrouped(items: StoredDistrictLatestItem[]): {
 
   const rows: GroupedRow[] = items
     .map((d) => {
-      const name = d.district || '';
+      const name = officialDistrictDisplay(d.district || '');
       const row: GroupedRow = { district: name, short: shortDistrict(name) };
       keys.forEach((key) => {
         row[key] = 0;
@@ -322,7 +323,10 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
   const byName = useMemo(() => {
     const map = new Map<string, StoredDistrictLatestItem>();
     latestDistricts.forEach((d) => {
-      if (d?.district) map.set(d.district.trim().toLowerCase(), d);
+      if (d?.district) {
+        const key = officialDistrictDisplay(d.district).trim().toLowerCase();
+        map.set(key, { ...d, district: officialDistrictDisplay(d.district) });
+      }
     });
     return map;
   }, [latestDistricts]);
@@ -330,17 +334,17 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
   const displayDistricts = useMemo(() => {
     if (latestDistricts.length > 0) {
       return latestDistricts
-        .map((d) => d.district)
+        .map((d) => officialDistrictDisplay(d.district))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b));
     }
-    return districts.map((d) => d.district).filter(Boolean);
+    return districts.map((d) => officialDistrictDisplay(d.district)).filter(Boolean);
   }, [latestDistricts, districts]);
 
   const chartBundles = useMemo(() => {
     const sugarcaneArea: SingleRow[] = latestDistricts
       .map((d) => {
-        const name = d.district || '';
+        const name = officialDistrictDisplay(d.district || '');
         const cane = d.cropwise_area?.crop_areas_ha?.sugarcane;
         return {
           district: name,
