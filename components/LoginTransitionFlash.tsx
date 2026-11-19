@@ -436,22 +436,21 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
   }, [latestDistricts]);
 
   const displayDistricts = useMemo(() => {
-    // Prefer rows that already have sugarcane area so we don't flash empty cards
+    // Only districts with computed/stored sugarcane (Google EE–backed store)
     const withCane = latestDistricts.filter((d) => {
       const cane = d.cropwise_area?.crop_areas_ha?.sugarcane;
-      return typeof cane === 'number' && !Number.isNaN(cane);
+      return typeof cane === 'number' && !Number.isNaN(cane) && cane > 0;
     });
-    const source = withCane.length > 0 ? withCane : latestDistricts;
-    if (source.length > 0) {
-      return source
+    if (withCane.length > 0) {
+      return withCane
         .map((d) => officialDistrictDisplay(d.district))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b));
     }
     // While loading, avoid rendering the full empty district grid
     if (latestLoading) return [];
-    return districts.map((d) => officialDistrictDisplay(d.district)).filter(Boolean);
-  }, [latestDistricts, districts, latestLoading]);
+    return [];
+  }, [latestDistricts, latestLoading]);
 
   const chartBundles = useMemo(() => {
     const sugarcaneArea: SingleRow[] = latestDistricts

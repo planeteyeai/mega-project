@@ -44,7 +44,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     // Check credentials
     const userKey = username.trim();
     const validUsers: { user: string; pass: string }[] = [
-      { user: 'Admin', pass: 'farm123' },
+      // Admin: raw stored DB crop areas (no Google/published calibration)
+      { user: 'admin', pass: 'farm@123' },
+      // Sugarcane: published/Google-calibrated ~15 lakh ha figures
       { user: 'sugarcane', pass: 'sugarcane@123' },
     ];
     const matched = validUsers.find(

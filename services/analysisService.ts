@@ -8,7 +8,20 @@ import {
   subdistrictQueryName,
   withOfficialDistrictName,
 } from '../utils/officialAdminNames';
-import { markCalibrated } from '../utils/realisticCropArea';
+import {
+  clearAreaCalibrationMemory,
+  districtTargetsFor,
+  getChildTarget,
+  getDistrictAreaFactor,
+  getDistrictTarget,
+  isAreaCalibrated,
+  markCalibrated,
+  rememberChildHa,
+  rememberDistrictFactor,
+  scaleChildAreaMaps,
+  scaleCropAreaHa,
+  usesGoogleAreaCalibration,
+} from '../utils/realisticCropArea';
 
 const isDevelopment =
   Boolean(import.meta.env.DEV) ||
@@ -2091,11 +2104,6 @@ export interface MaharashtraCropwiseResponse {
 const maharashtraCropwiseCache = createApiCache<MaharashtraCropwiseResponse>();
 const CROPWISE_TTL_MS = 3 * 60 * 60 * 1000;
 
-function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): MaharashtraCropwiseResponse {
-  const districts = (data.districts || []).map((row) => withOfficialDistrictName(row));
-  return markCalibrated({ ...data, districts });
-}
-
 function remapAreaMap(
   areas: Record<string, Record<string, number>> | undefined,
   rename: (name: string) => string
@@ -2108,8 +2116,91 @@ function remapAreaMap(
   return out;
 }
 
-function calibrateCropAreasResponse(data: PredictAreaCropAreasResponse): PredictAreaCropAreasResponse {
+function mapTotalHa(areas: Record<string, number> | undefined): number {
+  return (
+    Math.round(
+      Object.values(areas || {}).reduce((sum, value) => sum + Number(value || 0), 0) * 100
+    ) / 100
+  );
+}
+
+/**
+ * Sugarcane login: cap near published ~15 lakh ha (Google/gov shares), computed districts only.
+ * Admin login: pass through raw stored DB hectares.
+ */
+function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): MaharashtraCropwiseResponse {
+  const renamed = {
+    ...data,
+    districts: (data.districts || []).map((row) => withOfficialDistrictName(row)),
+  };
+  if (isAreaCalibrated(renamed)) return renamed;
+
+  if (!usesGoogleAreaCalibration()) {
+    // Admin: raw DB values; still hide districts with no stored cane
+    const districts = (renamed.districts || []).map((district) => {
+      if (district.has_data) return district;
+      return {
+        ...district,
+        crop_areas_ha: {},
+        total_crop_area_ha: 0,
+      };
+    });
+    const totals: Record<string, number> = {};
+    districts.forEach((district) => {
+      if (!district.has_data) return;
+      Object.entries(district.crop_areas_ha || {}).forEach(([crop, ha]) => {
+        totals[crop] = Math.round(((totals[crop] || 0) + Number(ha || 0)) * 100) / 100;
+      });
+    });
+    return markCalibrated({
+      ...renamed,
+      crop_areas_ha: totals,
+      total_crop_area_ha: mapTotalHa(totals),
+      districts,
+    });
+  }
+
+  const rawDistricts = renamed.districts || [];
+  const presentNames = rawDistricts
+    .filter((district) => district.has_data)
+    .map((district) => district.district);
+  const assigned = districtTargetsFor(presentNames, renamed.month);
+  const totals: Record<string, number> = {};
+  const districts = rawDistricts.map((district) => {
+    const rawAreas = district.crop_areas_ha || {};
+    const rawTotal = Object.values(rawAreas).reduce((sum, value) => sum + Number(value || 0), 0);
+    const target = assigned[district.district] || 0;
+    const cropKeys = Object.keys(rawAreas);
+    const parts = cropKeys.length
+      ? scaleChildAreaMaps({ [district.district]: rawAreas }, 2, district.has_data ? target : 0)
+      : { children: { [district.district]: {} }, totals: {} };
+    const areas = parts.children[district.district] || {};
+    const total =
+      Math.round(Object.values(areas).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100;
+    if (district.has_data && target > 0) {
+      rememberDistrictFactor(district.district, rawTotal, target, renamed.month);
+    }
+    Object.entries(areas).forEach(([crop, ha]) => {
+      totals[crop] = Math.round(((totals[crop] || 0) + Number(ha || 0)) * 100) / 100;
+    });
+    return {
+      ...district,
+      crop_areas_ha: areas,
+      total_crop_area_ha: total,
+    };
+  });
+
   return markCalibrated({
+    ...renamed,
+    crop_areas_ha: totals,
+    total_crop_area_ha:
+      Math.round(Object.values(totals).reduce((sum, value) => sum + Number(value || 0), 0) * 100) / 100,
+    districts,
+  });
+}
+
+function calibrateCropAreasResponse(data: PredictAreaCropAreasResponse): PredictAreaCropAreasResponse {
+  const renamed: PredictAreaCropAreasResponse = {
     ...data,
     district: officialDistrictDisplay(data.district),
     subdistrict: data.subdistrict
@@ -2117,26 +2208,149 @@ function calibrateCropAreasResponse(data: PredictAreaCropAreasResponse): Predict
       : data.subdistrict,
     subdistrict_wise: remapAreaMap(data.subdistrict_wise, officialSubdistrictDisplay),
     village_wise: data.village_wise,
-  });
+  };
+  if (isAreaCalibrated(renamed)) return renamed;
+  if (!usesGoogleAreaCalibration()) return markCalibrated(renamed);
+
+  const month = renamed.month;
+  if (renamed.village_wise) {
+    const rawTotal = mapTotalHa(
+      Object.fromEntries(
+        Object.entries(renamed.village_wise).map(([name, row]) => [name, mapTotalHa(row)])
+      )
+    );
+    const { children, totals } = scaleChildAreaMaps(
+      renamed.village_wise,
+      2,
+      getChildTarget(
+        renamed.district,
+        renamed.subdistrict || '',
+        month,
+        Math.round(rawTotal * getDistrictAreaFactor(renamed.district, month) * 100) / 100
+      )
+    );
+    return markCalibrated({ ...renamed, village_wise: children, totals });
+  }
+  if (renamed.subdistrict_wise) {
+    const { children, totals } = scaleChildAreaMaps(
+      renamed.subdistrict_wise,
+      2,
+      getDistrictTarget(renamed.district, month)
+    );
+    Object.entries(children).forEach(([subdistrict, areas]) => {
+      rememberChildHa(renamed.district, subdistrict, mapTotalHa(areas), month);
+    });
+    return markCalibrated({ ...renamed, subdistrict_wise: children, totals });
+  }
+  const { totals } = scaleChildAreaMaps(
+    { totals: renamed.totals || {} },
+    2,
+    getDistrictTarget(renamed.district, month)
+  );
+  return markCalibrated({ ...renamed, totals });
 }
 
 function calibrateStoredDistrictCropwise(
   block: StoredDistrictCropwiseArea | null | undefined,
-  _monthHint?: string
+  monthHint?: string
 ): StoredDistrictCropwiseArea | null | undefined {
   if (!block) return block;
-  return markCalibrated({
+  const renamed: StoredDistrictCropwiseArea = {
     ...block,
     district: block.district ? officialDistrictDisplay(block.district) : block.district,
     subdistrict_wise: remapAreaMap(
       block.subdistrict_wise as Record<string, Record<string, number>> | undefined,
       officialSubdistrictDisplay
     ),
+  };
+  if (isAreaCalibrated(renamed)) return renamed;
+  if (!usesGoogleAreaCalibration()) return markCalibrated(renamed);
+
+  const month = renamed.year_month || monthHint;
+  const districtTarget = renamed.district ? getDistrictTarget(renamed.district, month) : undefined;
+  const subdistricts = renamed.subdistrict_wise
+    ? scaleChildAreaMaps(
+        renamed.subdistrict_wise as Record<string, Record<string, number>>,
+        2,
+        districtTarget
+      )
+    : null;
+  if (renamed.district && subdistricts?.children) {
+    Object.entries(subdistricts.children).forEach(([subdistrict, areas]) => {
+      rememberChildHa(renamed.district || '', subdistrict, mapTotalHa(areas), month);
+    });
+  }
+  const areas =
+    subdistricts?.totals ||
+    scaleChildAreaMaps({ all: renamed.crop_areas_ha || {} }, 2, districtTarget).totals;
+  return markCalibrated({
+    ...renamed,
+    crop_areas_ha: areas,
+    subdistrict_wise: subdistricts?.children,
+    total_crop_area_ha: mapTotalHa(areas),
   });
 }
 
+function scalePredictCropData(crop: PredictAreaCropData | undefined): PredictAreaCropData | undefined {
+  if (!crop || typeof crop !== 'object') return crop;
+  const fields = crop.identified_field_boundaries || {};
+  const keys = Object.keys(fields);
+  const scaledFields = keys.length
+    ? scaleChildAreaMaps(
+        Object.fromEntries(keys.map((key) => [key, { ha: Number(fields[key]?.field_area_ha || 0) }])),
+        4
+      )
+    : null;
+  const identified = { ...fields };
+  if (scaledFields) {
+    keys.forEach((key) => {
+      identified[key] = { ...fields[key], field_area_ha: Number(scaledFields.children[key]?.ha || 0) };
+    });
+  }
+  const fieldSum = keys.reduce((sum, key) => sum + Number(identified[key]?.field_area_ha || 0), 0);
+  return {
+    ...crop,
+    crop_area_ha:
+      fieldSum > 0
+        ? Math.round(fieldSum * 10000) / 10000
+        : scaleCropAreaHa(Number(crop.crop_area_ha || 0)),
+    identified_field_boundaries: identified,
+  };
+}
+
 function calibratePredictAreaResponse(data: PredictAreaResponse): PredictAreaResponse {
-  return markCalibrated(data);
+  if (isAreaCalibrated(data)) return data;
+  if (!usesGoogleAreaCalibration()) return markCalibrated(data);
+  const next: PredictAreaResponse = { ...data };
+  (['sugarcane', 'wheat', 'onion', 'banana', 'mango'] as const).forEach((crop) => {
+    const scaled = scalePredictCropData(next[crop] as PredictAreaCropData | undefined);
+    if (scaled) next[crop] = scaled;
+  });
+  if (typeof next.sugarcane_area_ha === 'number') {
+    const cane = next.sugarcane as PredictAreaCropData | undefined;
+    next.sugarcane_area_ha = cane?.crop_area_ha ?? scaleCropAreaHa(next.sugarcane_area_ha);
+  }
+  if (Array.isArray(next.village_wise_summary)) {
+    const rows = next.village_wise_summary.filter(
+      (row): row is Record<string, number | string> => !!row && typeof row === 'object'
+    );
+    const byName: Record<string, Record<string, number>> = {};
+    rows.forEach((row, index) => {
+      const name = String(row.village || index);
+      byName[name] = {};
+      ['sugarcane_area_ha', 'wheat_area_ha', 'onion_area_ha', 'banana_area_ha', 'mango_area_ha'].forEach(
+        (key) => {
+          byName[name][key] = Number(row[key] || 0);
+        }
+      );
+    });
+    const { children } = scaleChildAreaMaps(byName, 2);
+    next.village_wise_summary = rows.map((row, index) => {
+      const name = String(row.village || index);
+      return { ...row, ...children[name] };
+    });
+  }
+  return markCalibrated(next);
 }
 
 export const fetchMaharashtraCropwise = async (
@@ -2144,7 +2358,8 @@ export const fetchMaharashtraCropwise = async (
   cropName = 'sugarcane'
 ): Promise<MaharashtraCropwiseResponse> => {
   const crop = cropName.trim() || 'sugarcane';
-  const cacheKey = `cropwise:${ADMIN_NAMES_CACHE_VERSION}:${month.trim()}:${crop.toLowerCase()}`;
+  const areaMode = usesGoogleAreaCalibration() ? 'google' : 'raw';
+  const cacheKey = `cropwise:${ADMIN_NAMES_CACHE_VERSION}:v6:${areaMode}:${month.trim()}:${crop.toLowerCase()}`;
   return maharashtraCropwiseCache.getOrFetch(cacheKey, CROPWISE_TTL_MS, async () => {
     const params = new URLSearchParams({
       month: month.trim(),

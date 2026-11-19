@@ -7,10 +7,25 @@
  */
 export const REALISTIC_STATE_TARGET_HA = 1_500_000;
 export const REALISTIC_STATE_RAW_HA = 4_160_993.69;
-/** Keep at 1 so leftover helpers never invent demo totals. */
-export const REALISTIC_CROP_AREA_SCALE = 1;
+/** Scale raw stored ~41.6 lakh ha toward published Maharashtra sugarcane (~15 lakh ha). */
+export const REALISTIC_CROP_AREA_SCALE = REALISTIC_STATE_TARGET_HA / REALISTIC_STATE_RAW_HA;
 export const SOLAPUR_HA = 117_000;
-export const AREA_CALIBRATION_ID = 'stored_raw_v1';
+/** Sugarcane login: published/Google-calibrated figures. */
+export const AREA_CALIBRATION_ID = 'realistic_1_5m_v6';
+/** Admin login: unchanged hectares from the stored database. */
+export const RAW_DB_AREA_CALIBRATION_ID = 'stored_raw_db_v1';
+
+/** Sugarcane user gets Google/published calibration; Admin (and guests) see raw DB. */
+export function usesGoogleAreaCalibration(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return (localStorage.getItem('currentUser') || '').trim().toLowerCase() === 'sugarcane';
+}
+
+export function clearAreaCalibrationMemory(): void {
+  assignedDistrictHa.clear();
+  assignedChildHa.clear();
+  districtAreaFactor.clear();
+}
 
 const MONTH_SEASON: Record<number, number> = {
   1: 1.018,
@@ -99,7 +114,11 @@ const assignedChildHa = new Map<string, number>();
 const districtAreaFactor = new Map<string, number>();
 
 export function isAreaCalibrated(value: { area_calibration?: string } | null | undefined): boolean {
-  return value?.area_calibration === AREA_CALIBRATION_ID;
+  const id = value?.area_calibration;
+  if (!id) return false;
+  return usesGoogleAreaCalibration()
+    ? id === AREA_CALIBRATION_ID
+    : id === RAW_DB_AREA_CALIBRATION_ID;
 }
 
 export function normalizeDistrictKey(name: string): string {
@@ -327,5 +346,10 @@ export function scaleChildAreaMaps(
 }
 
 export function markCalibrated<T extends Record<string, unknown>>(payload: T): T & { area_calibration: string } {
-  return { ...payload, area_calibration: AREA_CALIBRATION_ID };
+  return {
+    ...payload,
+    area_calibration: usesGoogleAreaCalibration()
+      ? AREA_CALIBRATION_ID
+      : RAW_DB_AREA_CALIBRATION_ID,
+  };
 }

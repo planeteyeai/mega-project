@@ -106,8 +106,10 @@ import {
   resolveMapTileUrl,
   downloadAssessmentReport,
 } from './services/analysisService';
+import { clearAllApiCaches } from './utils/apiCache';
 import { Coordinate } from './types';
 import LoginTransitionFlash from './components/LoginTransitionFlash';
+import { clearAreaCalibrationMemory } from './utils/realisticCropArea';
 import { Loader2, AlertCircle, Layers, Home, LogOut, Eye, EyeOff, Sprout, Droplets, Droplet, Bug, Waves, Trees, Wind, Thermometer, LineChart as LineChartIcon, BarChart3, Download, FileText, FileSpreadsheet, ChevronLeft, ChevronRight, Columns, Maximize2, ChevronUp, ChevronDown, Move, TrendingUp, Globe2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -6589,9 +6591,11 @@ const App: React.FC = () => {
   const handleLogin = (user: string) => {
     setCurrentUser(user);
     setIsAuthenticated(true);
-    // Save to localStorage
+    // Save to localStorage before cache/calibration so fetch mode matches the user
     localStorage.setItem('isAuthenticated', 'true');
     localStorage.setItem('currentUser', user);
+    clearAreaCalibrationMemory();
+    clearAllApiCaches();
     if (isSugarcaneOnlyUser(user)) {
       setSelectedCrops(sugarcaneOnlySelection());
     }
@@ -6613,6 +6617,8 @@ const App: React.FC = () => {
     // Clear localStorage
     localStorage.removeItem('isAuthenticated');
     localStorage.removeItem('currentUser');
+    clearAreaCalibrationMemory();
+    clearAllApiCaches();
   };
 
   const [districtSplashKey, setDistrictSplashKey] = useState(0);
