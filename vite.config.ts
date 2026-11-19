@@ -8,11 +8,20 @@ export default defineConfig(({ mode }) => {
       env.VITE_VILLAGE_DATA_API_URL || 'https://jam-hose-bride-plain.trycloudflare.com';
     const apiProxyTarget =
       env.VITE_API_PROXY_TARGET || 'https://web-production-72a7.up.railway.app';
+    const reportsProxyTarget =
+      env.VITE_REPORTS_PROXY_TARGET || 'http://127.0.0.1:7005';
     return {
       server: {
-        port: 3000,
+        port: 5009,
         host: '0.0.0.0', // Bind to all network interfaces (accessible from localhost and network)
         proxy: {
+          // Assessment PDF reports run on local MegaProject (Railway does not serve /reports yet)
+          '/local-api': {
+            target: reportsProxyTarget,
+            changeOrigin: true,
+            secure: false,
+            rewrite: (path) => path.replace(/^\/local-api/, ''),
+          },
           '/railway': {
             target: apiProxyTarget,
             changeOrigin: true,

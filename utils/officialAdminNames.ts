@@ -102,6 +102,28 @@ export function officialSubdistrictDisplay(name: string | null | undefined): str
   return SUBDISTRICT_DISPLAY[norm(raw)] || raw;
 }
 
+/**
+ * Map UI/display subdistrict names back to the DB/API query name.
+ * Example: dropdown may show "Ahilyanagar" but villages are stored under "Nagar".
+ */
+const SUBDISTRICT_QUERY_NAME: Record<string, string> = {
+  ahilyanagar: 'Nagar',
+  'ahilya nagar': 'Nagar',
+  ahmadnagar: 'Nagar',
+  ahmednagar: 'Nagar',
+  'chhatrapati sambhajinagar': 'Aurangabad',
+  'chhatrapati sambhaji nagar': 'Aurangabad',
+  sambhajinagar: 'Aurangabad',
+  'sambhaji nagar': 'Aurangabad',
+  dharashiv: 'Osmanabad',
+};
+
+export function subdistrictQueryName(name: string | null | undefined): string {
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+  return SUBDISTRICT_QUERY_NAME[norm(raw)] || raw;
+}
+
 export function withOfficialDistrictName<T extends { district?: string }>(row: T): T {
   if (!row?.district) return row;
   return { ...row, district: officialDistrictDisplay(row.district) };

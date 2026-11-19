@@ -168,10 +168,8 @@
 </head>
   <body>
     <div id="root"></div>
-    <!-- Load Leaflet as global script first -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Then load Leaflet Draw after Leaflet is available -->
-    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <!-- Leaflet + Draw load via npm (react-leaflet). Do not load CDN leaflet.js —
+         a second L instance breaks leaflet-draw on the map. -->
     <script type="module" src="/index.tsx"></script>
-</body>
+  </body>
 </html>

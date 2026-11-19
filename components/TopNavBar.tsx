@@ -1,8 +1,8 @@
 import React from 'react';
-import { CloudSun, Droplets, Download, FileSpreadsheet, FileText, Loader2, ArrowLeft, Map, LayoutDashboard, Landmark, Wind, Thermometer } from 'lucide-react';
+import { CloudSun, Droplets, Download, FileSpreadsheet, FileText, Loader2, ArrowLeft, Map, LayoutDashboard, Landmark, Wind, Thermometer, Pencil, LayoutGrid } from 'lucide-react';
 import type { WeatherDailyResponse } from '../services/analysisService';
 
-export type TopNavView = 'map' | 'dashboard' | 'state';
+export type TopNavView = 'map' | 'dashboard' | 'state' | 'districts';
 
 export interface TopNavBarProps {
   isDarkMode: boolean;
@@ -10,6 +10,8 @@ export interface TopNavBarProps {
   onMapExplore: () => void;
   onDashboard: () => void;
   onState: () => void;
+  /** Open stored-districts sugarcane splash dashboard */
+  onDistricts?: () => void;
   weatherData: WeatherDailyResponse | null;
   weatherLoading: boolean;
   weatherError: string | null;
@@ -18,6 +20,13 @@ export interface TopNavBarProps {
   onToggleDownloadMenu: () => void;
   onDownloadPdf: () => void;
   onDownloadExcel: () => void;
+  /** Server-side village / subdistrict / farm-plot assessment PDF */
+  onDownloadAssessmentReport?: () => void;
+  assessmentReportLoading?: boolean;
+  /** Enable Leaflet draw tools for custom plot reports */
+  drawingEnabled?: boolean;
+  onToggleDrawing?: () => void;
+  drawnShapeCount?: number;
   /** Return to district selection splash */
   onBack: () => void;
 }
@@ -50,6 +59,7 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
   onMapExplore,
   onDashboard,
   onState,
+  onDistricts,
   weatherData,
   weatherLoading,
   weatherError,
@@ -58,6 +68,11 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
   onToggleDownloadMenu,
   onDownloadPdf,
   onDownloadExcel,
+  onDownloadAssessmentReport,
+  assessmentReportLoading = false,
+  drawingEnabled = false,
+  onToggleDrawing,
+  drawnShapeCount = 0,
   onBack,
 }) => {
   const locationLabel =
@@ -145,6 +160,19 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
             Map explore
           </span>
         </button>
+        {onDistricts && (
+          <button
+            type="button"
+            onClick={onDistricts}
+            className={navBtn(activeView === 'districts')}
+            title="Sugarcane stored districts dashboard"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <LayoutGrid size={15} />
+              Districts
+            </span>
+          </button>
+        )}
         <button type="button" onClick={onDashboard} className={navBtn(activeView === 'dashboard')}>
           <span className="inline-flex items-center gap-1.5">
             <LayoutDashboard size={15} />
@@ -215,7 +243,7 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
                   }`}
                 >
                   <FileText size={16} />
-                  PDF
+                  Chart PDF
                 </button>
                 <button
                   type="button"
@@ -227,11 +255,53 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
                   <FileSpreadsheet size={16} />
                   Excel
                 </button>
+                {onDownloadAssessmentReport && (
+                  <button
+                    type="button"
+                    disabled={assessmentReportLoading}
+                    onClick={onDownloadAssessmentReport}
+                    className={`w-full px-3 py-2 flex items-center justify-center gap-2 text-xs border-t transition-colors disabled:opacity-60 ${
+                      isDarkMode ? 'text-emerald-300 hover:bg-gray-800 border-gray-700' : 'text-emerald-800 hover:bg-emerald-50 border-emerald-100'
+                    }`}
+                    title={
+                      drawnShapeCount > 0
+                        ? 'Generate complete report for the drawn plot'
+                        : 'Village / subdistrict / farm-plot assessment report from backend'
+                    }
+                  >
+                    {assessmentReportLoading ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                    {drawnShapeCount > 0 ? 'Report for drawn plot' : 'Assessment Report'}
+                  </button>
+                )}
               </div>
             </>
           )}
         </div>
-{/* 
+
+        {onToggleDrawing && (
+          <button
+            type="button"
+            onClick={onToggleDrawing}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm font-semibold transition-colors shrink-0 ${
+              drawingEnabled
+                ? 'border-emerald-500 bg-emerald-600 text-white hover:bg-emerald-700'
+                : isDarkMode
+                  ? 'border-gray-600 bg-gray-800 text-gray-200 hover:bg-gray-700'
+                  : 'border-emerald-100 bg-white text-gray-700 hover:bg-emerald-50'
+            }`}
+            title={
+              drawingEnabled
+                ? 'Drawing ON — use polygon tool on the map, then Download → Report for drawn plot'
+                : 'Draw a plot on the map for a complete assessment report'
+            }
+          >
+            <Pencil size={16} />
+            <span className="hidden sm:inline">
+              {drawingEnabled ? `Draw Plot (${drawnShapeCount})` : 'Draw Plot'}
+            </span>
+          </button>
+        )}
+{/*
         <button
           type="button"
           onClick={onBack}

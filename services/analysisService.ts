@@ -5,6 +5,7 @@ import {
   ADMIN_NAMES_CACHE_VERSION,
   officialDistrictDisplay,
   officialSubdistrictDisplay,
+  subdistrictQueryName,
   withOfficialDistrictName,
 } from '../utils/officialAdminNames';
 import { markCalibrated } from '../utils/realisticCropArea';
@@ -37,6 +38,32 @@ const getBaseUrl = (): string => {
     }
   }
   return RAILWAY_HOST;
+};
+
+/**
+ * Assessment PDF reports: local MegaProject in dev (`/local-api` → :7005),
+ * same host as analysis API in production once `/reports` is deployed.
+ */
+const getReportsBaseUrl = (): string => {
+  const fromEnv =
+    typeof import.meta !== 'undefined'
+      ? (import.meta.env.VITE_REPORTS_BASE_URL as string | undefined)
+      : undefined;
+  if (fromEnv?.trim()) {
+    return fromEnv.trim().replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      /^192\.168\./.test(host) ||
+      /^10\./.test(host)
+    ) {
+      return '/local-api';
+    }
+  }
+  return getBaseUrl();
 };
 
 /**
@@ -193,12 +220,19 @@ export const fetchSubdistricts = async (district: string): Promise<SubdistrictIt
     const data: SubdistrictsResponse = await response.json();
     const subdistrictsArray = data.subdistricts || [];
 
+    // Keep API/DB subdistrict as the value used for /villages and analysis.
+    // Display rename (e.g. Nagar → Ahilyanagar) is applied only in option labels.
     return subdistrictsArray
       .map((item) => ({
-        subdistrict: officialSubdistrictDisplay(item.subdistrict),
+        subdistrict: String(item.subdistrict || '').trim(),
         geometry: item.geometry,
       }))
-      .sort((a, b) => a.subdistrict.localeCompare(b.subdistrict));
+      .filter((item) => item.subdistrict)
+      .sort((a, b) =>
+        officialSubdistrictDisplay(a.subdistrict).localeCompare(
+          officialSubdistrictDisplay(b.subdistrict)
+        )
+      );
   } catch (error) {
     if (error instanceof TypeError && error.message.includes('fetch')) {
       throw new Error(`Network error: Unable to connect to ${getBaseUrl()}/subdistricts`);
@@ -254,7 +288,8 @@ export const parseVillageBoundaryCoordinates = (village: VillageItem): Coordinat
 
 export const fetchVillages = async (subdistrict: string): Promise<VillageItem[]> => {
   try {
-    const response = await fetch(`${getBaseUrl()}/villages?subdistrict=${encodeURIComponent(subdistrict)}`, {
+    const queryName = subdistrictQueryName(subdistrict);
+    const response = await fetch(`${getBaseUrl()}/villages?subdistrict=${encodeURIComponent(queryName)}`, {
       method: 'GET',
       headers: {
         'accept': 'application/json'
@@ -3516,6 +3551,248 @@ export interface BuildingBuiltupResponse {
   building_summary?: BuildingSummary;
   classwise?: BuildingClasswiseItem[];
 }
+
+/** Download a blob from a report endpoint and trigger a browser save. */
+async function downloadReportBlob(url: string, fallbackName: string): Promise<void> {
+  const response = await fetch(url, { method: 'GET', headers: { accept: 'application/pdf,application/json' } });
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const err = await response.json();
+      if (err?.detail) detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`Report API error: ${detail}`);
+  }
+  const blob = await response.blob();
+  const cd = response.headers.get('content-disposition') || '';
+  const match = /filename="?([^";]+)"?/i.exec(cd);
+  const filename = match?.[1] || fallbackName;
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function currentYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export type AssessmentReportParams = {
+  district: string;
+  subdistrict?: string;
+  village?: string;
+  fieldId?: number | null;
+  month?: string;
+  cropName?: string;
+  /** STAC land stats — slower; default false for snappy downloads */
+  includeLandStatistics?: boolean;
+  format?: 'pdf' | 'json';
+  /** Drawn GeoJSON geometry (Polygon) — posts to /reports/farm-plot */
+  geometry?: GeoJSON.Geometry | null;
+};
+
+/** Live drawn-plot analysis (crop/barren, tiles, field score, irrigation, ownership). */
+export const analyzeDrawnPlot = async (params: {
+  geometry: GeoJSON.Geometry;
+  asOfDate?: string;
+  cropName?: string;
+  district?: string;
+  subdistrict?: string;
+  village?: string;
+}): Promise<Record<string, unknown>> => {
+  const base = getReportsBaseUrl();
+  const response = await fetch(`${base}/reports/plot/analyze`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      geometry: params.geometry,
+      as_of_date: params.asOfDate,
+      crop_name: params.cropName,
+      district: params.district,
+      subdistrict: params.subdistrict,
+      village: params.village,
+      include_tiles: true,
+      include_graphs: true,
+      include_land_statistics: true,
+      include_irrigation: true,
+    }),
+  });
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const err = await response.json();
+      if (err?.detail) detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`Plot analyze error: ${detail}`);
+  }
+  return response.json();
+};
+
+/** NDVI / water / soil charts for drawn plot (last N months from as_of_date). */
+export const fetchDrawnPlotIndicesGraphs = async (params: {
+  geometry: GeoJSON.Geometry;
+  asOfDate?: string;
+  months?: number;
+}): Promise<Record<string, unknown>> => {
+  const base = getReportsBaseUrl();
+  const response = await fetch(`${base}/reports/plot/indices-graphs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      geometry: params.geometry,
+      as_of_date: params.asOfDate,
+      months: params.months ?? 6,
+    }),
+  });
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const err = await response.json();
+      if (err?.detail) detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`Indices graphs error: ${detail}`);
+  }
+  return response.json();
+};
+
+/**
+ * Download MegaProject assessment PDF/JSON:
+ * - field selected → /reports/farm-plot
+ * - village → /reports/village
+ * - subdistrict → /reports/subdistrict
+ */
+export const downloadAssessmentReport = async (
+  params: AssessmentReportParams
+): Promise<{ scope: 'farm_plot' | 'village' | 'subdistrict' }> => {
+  const district = (params.district || '').trim();
+  const subdistrict = (params.subdistrict || '').trim();
+  const village = (params.village || '').trim();
+  const month = (params.month || '').trim() || currentYearMonth();
+  const format = params.format || 'pdf';
+  const land = params.includeLandStatistics ? 'true' : 'false';
+  const base = getReportsBaseUrl();
+
+  if (params.geometry) {
+    const asOf =
+      /^\d{4}-\d{2}$/.test(month) ? `${month}-15` : new Date().toISOString().slice(0, 10);
+    const response = await fetch(`${base}/reports/farm-plot`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/pdf,application/json' },
+      body: JSON.stringify({
+        district: district || undefined,
+        subdistrict: subdistrict || undefined,
+        village: village || undefined,
+        month,
+        crop_name: params.cropName?.trim() || undefined,
+        format,
+        include_land_statistics: false,
+        compute_irrigation: true,
+        // Fast path: owner + outline + stored analytics + irrigation proxy (seconds).
+        // Set analysis_mode "full" only when you need live EE tiles/graphs (minutes).
+        enrich_plot_analysis: false,
+        analysis_mode: 'fast',
+        as_of_date: asOf,
+        geometry: params.geometry,
+      }),
+    });
+    if (!response.ok) {
+      let detail = `${response.status} ${response.statusText}`;
+      try {
+        const err = await response.json();
+        if (err?.detail) detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+      } catch {
+        /* ignore */
+      }
+      throw new Error(`Report API error: ${detail}`);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = `farm_plot_drawn_report_${month}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+    return { scope: 'farm_plot' };
+  }
+
+  if (!district) {
+    throw new Error('Select a district before generating a report.');
+  }
+
+  if (params.fieldId != null && Number.isFinite(Number(params.fieldId))) {
+    if (!subdistrict || !village) {
+      throw new Error('Farm-plot report needs district, subdistrict, and village with the field.');
+    }
+    const qs = new URLSearchParams({
+      district,
+      subdistrict,
+      village,
+      field_id: String(params.fieldId),
+      month,
+      format,
+      include_land_statistics: land,
+      compute_irrigation: 'true',
+    });
+    if (params.cropName?.trim()) qs.set('crop_name', params.cropName.trim());
+    await downloadReportBlob(
+      `${base}/reports/farm-plot?${qs}`,
+      `farm_plot_report_${params.fieldId}.pdf`
+    );
+    return { scope: 'farm_plot' };
+  }
+
+  if (village) {
+    if (!subdistrict) {
+      throw new Error('Village report needs a subdistrict.');
+    }
+    const qs = new URLSearchParams({
+      district,
+      subdistrict,
+      village,
+      month,
+      format,
+      include_land_statistics: land,
+    });
+    if (params.cropName?.trim()) qs.set('crop_name', params.cropName.trim());
+    await downloadReportBlob(
+      `${base}/reports/village?${qs}`,
+      `village_report_${village}_${month}.pdf`
+    );
+    return { scope: 'village' };
+  }
+
+  if (subdistrict) {
+    const qs = new URLSearchParams({
+      district,
+      subdistrict,
+      month,
+      format,
+      include_land_statistics: land,
+      include_village_dossiers: 'true',
+    });
+    if (params.cropName?.trim()) qs.set('crop_name', params.cropName.trim());
+    await downloadReportBlob(
+      `${base}/reports/subdistrict?${qs}`,
+      `subdistrict_report_${subdistrict}_${month}.pdf`
+    );
+    return { scope: 'subdistrict' };
+  }
+
+  throw new Error('Select a subdistrict (or village / field), or draw a plot to generate an assessment report.');
+};
 
 /** POST /buildingbuiltup — Google Open Buildings built-up layer (district / subdistrict / village). */
 export const fetchBuildingBuiltup = async (

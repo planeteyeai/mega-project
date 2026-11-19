@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  fetchMaharashtraCropwise,
   fetchStoredDistrictsLatest,
   formatPredictAreaMonthLabel,
   getCurrentPredictAreaMonth,
@@ -253,11 +254,10 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
 }) => {
   const [phase, setPhase] = useState<'pick' | 'flash' | 'out'>('pick');
   const [picked, setPicked] = useState('');
-  const [month, setMonth] = useState(() => {
-    if (monthProp && /^\d{4}-\d{2}$/.test(monthProp.trim())) return monthProp.trim();
-    return getCurrentPredictAreaMonth();
-  });
+  /** Always open on current calendar month (Nov 2026 → 2026-11); user can still change picker. */
+  const [month, setMonth] = useState(() => getCurrentPredictAreaMonth());
   const [latestLoading, setLatestLoading] = useState(true);
+  const [classwiseLoading, setClasswiseLoading] = useState(false);
   const [latestError, setLatestError] = useState<string | null>(null);
   const [latestDistricts, setLatestDistricts] = useState<StoredDistrictLatestItem[]>([]);
   const [expandedChartId, setExpandedChartId] = useState<string | null>(null);
@@ -270,12 +270,6 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
   onMonthChangeRef.current = onMonthChange;
 
   useEffect(() => {
-    if (monthProp && /^\d{4}-\d{2}$/.test(monthProp.trim())) {
-      setMonth(monthProp.trim());
-    }
-  }, [monthProp]);
-
-  useEffect(() => {
     onMonthChangeRef.current?.(month);
   }, [month]);
 
@@ -283,19 +277,129 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
     let cancelled = false;
     setLatestLoading(true);
     setLatestError(null);
-    fetchStoredDistrictsLatest(month, true)
-      .then((res) => {
+    setClasswiseLoading(true);
+
+    const mergeRows = (
+      stored: StoredDistrictLatestItem[],
+      cropwiseDistricts: Array<{
+        district: string;
+        crop_areas_ha?: Record<string, number>;
+        has_data?: boolean;
+      }>
+    ): StoredDistrictLatestItem[] => {
+      const byKey = new Map<string, StoredDistrictLatestItem>();
+      stored.forEach((d) => {
+        const name = officialDistrictDisplay(d.district || '').trim();
+        if (!name) return;
+        byKey.set(name.toLowerCase(), { ...d, district: name });
+      });
+      cropwiseDistricts.forEach((row) => {
+        const name = officialDistrictDisplay(row.district || '').trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const cane = row.crop_areas_ha?.sugarcane;
+        const existing = byKey.get(key);
+        const existingCane = existing?.cropwise_area?.crop_areas_ha?.sugarcane;
+        const needsCane =
+          existingCane == null ||
+          (typeof existingCane === 'number' &&
+            existingCane === 0 &&
+            typeof cane === 'number' &&
+            cane > 0);
+        if (!existing) {
+          byKey.set(key, {
+            district: name,
+            cropwise_area:
+              typeof cane === 'number'
+                ? {
+                    district: name,
+                    year_month: month,
+                    crop_areas_ha: { sugarcane: cane },
+                    total_crop_area_ha: cane,
+                  }
+                : null,
+          });
+          return;
+        }
+        if (needsCane && typeof cane === 'number') {
+          byKey.set(key, {
+            ...existing,
+            cropwise_area: {
+              ...(existing.cropwise_area || {}),
+              district: name,
+              year_month: existing.cropwise_area?.year_month || month,
+              crop_areas_ha: {
+                ...(existing.cropwise_area?.crop_areas_ha || {}),
+                sugarcane: cane,
+              },
+              total_crop_area_ha: existing.cropwise_area?.total_crop_area_ha ?? cane,
+            },
+          });
+        }
+      });
+      return Array.from(byKey.values()).sort((a, b) =>
+        String(a.district).localeCompare(String(b.district))
+      );
+    };
+
+    const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      new Promise((resolve, reject) => {
+        const t = window.setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms);
+        promise.then(
+          (v) => {
+            window.clearTimeout(t);
+            resolve(v);
+          },
+          (e) => {
+            window.clearTimeout(t);
+            reject(e);
+          }
+        );
+      });
+
+    // 1) Fast path — Maharashtra cropwise fills sugarcane cards/chart first
+    fetchMaharashtraCropwise(month, 'sugarcane')
+      .then((crop) => {
         if (cancelled) return;
-        setLatestDistricts(res.districts || []);
+        const cropDistricts = crop.districts || [];
+        const merged = mergeRows([], cropDistricts);
+        setLatestDistricts(merged);
+        const hasCane = merged.some(
+          (d) => typeof d.cropwise_area?.crop_areas_ha?.sugarcane === 'number' && (d.cropwise_area?.crop_areas_ha?.sugarcane || 0) > 0
+        );
+        if (!hasCane) {
+          setLatestError(`No sugarcane area stored for ${formatPredictAreaMonthLabel(month)}`);
+        } else {
+          setLatestError(null);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
-        setLatestDistricts([]);
-        setLatestError(err instanceof Error ? err.message : 'Failed to load district stats');
+        setLatestError(err instanceof Error ? err.message : 'Maharashtra cropwise failed');
       })
       .finally(() => {
         if (!cancelled) setLatestLoading(false);
       });
+
+    // 2) Slow path — classwise growth/water/soil (heavy); don't block cards
+    withTimeout(fetchStoredDistrictsLatest(month, true), 25000, 'District classwise')
+      .then((stored) => {
+        if (cancelled) return;
+        setLatestDistricts((prev) => mergeRows(stored.districts || [],
+          prev.map((d) => ({
+            district: d.district,
+            crop_areas_ha: d.cropwise_area?.crop_areas_ha,
+            has_data: true,
+          }))
+        ));
+      })
+      .catch(() => {
+        /* keep cropwise-only view; classwise charts stay empty */
+      })
+      .finally(() => {
+        if (!cancelled) setClasswiseLoading(false);
+      });
+
     return () => {
       cancelled = true;
     };
@@ -332,14 +436,22 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
   }, [latestDistricts]);
 
   const displayDistricts = useMemo(() => {
-    if (latestDistricts.length > 0) {
-      return latestDistricts
+    // Prefer rows that already have sugarcane area so we don't flash empty cards
+    const withCane = latestDistricts.filter((d) => {
+      const cane = d.cropwise_area?.crop_areas_ha?.sugarcane;
+      return typeof cane === 'number' && !Number.isNaN(cane);
+    });
+    const source = withCane.length > 0 ? withCane : latestDistricts;
+    if (source.length > 0) {
+      return source
         .map((d) => officialDistrictDisplay(d.district))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b));
     }
+    // While loading, avoid rendering the full empty district grid
+    if (latestLoading) return [];
     return districts.map((d) => officialDistrictDisplay(d.district)).filter(Boolean);
-  }, [latestDistricts, districts]);
+  }, [latestDistricts, districts, latestLoading]);
 
   const chartBundles = useMemo(() => {
     const sugarcaneArea: SingleRow[] = latestDistricts
@@ -352,7 +464,7 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
           value: typeof cane === 'number' && !Number.isNaN(cane) ? Number(cane.toFixed(1)) : 0,
         };
       })
-      .filter((r) => r.district)
+      .filter((r) => r.district && r.value > 0)
       .sort((a, b) => b.value - a.value);
 
     return {
@@ -648,7 +760,8 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
                 Nearlive Crop Monitoring
               </div>
               <div className="truncate text-xs font-medium text-slate-500 md:text-sm">
-                Select district · {formatPredictAreaMonthLabel(month)}
+                Sugarcane stored districts · {formatPredictAreaMonthLabel(month)}
+                {latestLoading ? ' · loading areas…' : ''}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -681,6 +794,14 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
                   {displayDistricts.map((name) => {
                     const row = byName.get(name.trim().toLowerCase());
                     const growthRows = getGrowthClassRows(row?.growth);
+                    const caneHa = row?.cropwise_area?.crop_areas_ha?.sugarcane;
+                    const caneLabel =
+                      typeof caneHa === 'number' && !Number.isNaN(caneHa)
+                        ? `${caneHa.toLocaleString(undefined, {
+                            maximumFractionDigits: caneHa >= 100 ? 0 : 1,
+                          })} ha`
+                        : '—';
+                    const hasGrowth = growthRows.some((g) => g.pct != null);
                     return (
                       <button
                         key={name}
@@ -689,27 +810,73 @@ const LoginTransitionFlash: React.FC<LoginTransitionFlashProps> = ({
                         className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-slate-900 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50 md:px-4 md:py-3.5"
                       >
                         <div className="text-base font-bold leading-tight md:text-lg">{name}</div>
-                        <div className="mt-2 space-y-1 text-sm leading-snug md:text-[15px]">
-                          {growthRows.map((g) => (
-                            <div key={g.label} className="flex items-baseline justify-between gap-2">
-                              <span className="font-semibold" style={{ color: g.color }}>
-                                {g.label}
-                              </span>
-                              <span className="font-bold text-slate-900">{formatPct(g.pct)}</span>
-                            </div>
-                          ))}
+                        <div className="mt-1.5 flex items-baseline justify-between gap-2 text-sm">
+                          <span className="font-semibold text-emerald-700">Sugarcane</span>
+                          <span className="font-bold text-slate-900">{caneLabel}</span>
                         </div>
+                        {!sugarcaneOnly && hasGrowth && (
+                          <div className="mt-2 space-y-1 text-sm leading-snug md:text-[15px]">
+                            {growthRows.map((g) => (
+                              <div key={g.label} className="flex items-baseline justify-between gap-2">
+                                <span className="font-semibold" style={{ color: g.color }}>
+                                  {g.label}
+                                </span>
+                                <span className="font-bold text-slate-900">{formatPct(g.pct)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
                 </div>
               )}
-              {latestLoading && displayDistricts.length > 0 ? (
+              {(latestLoading || classwiseLoading) && displayDistricts.length > 0 ? (
                 <p className="mt-3 flex items-center justify-center gap-2 text-sm text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-                  Refreshing district stats…
+                  {latestLoading
+                    ? 'Loading sugarcane areas…'
+                    : 'Loading growth / water / soil (optional)…'}
                 </p>
               ) : null}
+              {latestError ? (
+                <p className="mt-3 text-center text-sm text-amber-700">{latestError}</p>
+              ) : null}
+            </section>
+
+            {/* Stored sugarcane + classwise charts for selected month (Google EE–backed store) */}
+            <section className="grid w-full grid-cols-1 gap-4 lg:grid-cols-2">
+              {renderSingleChart(
+                'sugarcane',
+                `Sugarcane area · ${formatPredictAreaMonthLabel(month)}`,
+                'Stored district crop_areas_ha.sugarcane (ha)',
+                chartBundles.sugarcaneArea,
+                'ha'
+              )}
+              {!sugarcaneOnly &&
+                renderGroupedChart(
+                  'growth',
+                  'Growth',
+                  'classwise % — Weak, Stress, Moderate, Healthy',
+                  chartBundles.growth,
+                  '%'
+                )}
+              {!sugarcaneOnly &&
+                renderGroupedChart(
+                  'water',
+                  'Water uptake',
+                  'classwise % — Deficient, Less, Adequate, Excellent, Excess',
+                  chartBundles.water,
+                  '%'
+                )}
+              {!sugarcaneOnly &&
+                renderGroupedChart(
+                  'soil',
+                  'Soil moisture',
+                  'classwise % — less, adequate, excellent, excess',
+                  chartBundles.soil,
+                  '%'
+                )}
             </section>
           </div>
 

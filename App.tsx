@@ -104,8 +104,10 @@ import {
   PestStoredResponse,
   PestStoredItem,
   resolveMapTileUrl,
+  downloadAssessmentReport,
 } from './services/analysisService';
 import { Coordinate } from './types';
+import LoginTransitionFlash from './components/LoginTransitionFlash';
 import { Loader2, AlertCircle, Layers, Home, LogOut, Eye, EyeOff, Sprout, Droplets, Droplet, Bug, Waves, Trees, Wind, Thermometer, LineChart as LineChartIcon, BarChart3, Download, FileText, FileSpreadsheet, ChevronLeft, ChevronRight, Columns, Maximize2, ChevronUp, ChevronDown, Move, TrendingUp, Globe2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -113,6 +115,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { generateDashboardIndicesPdf } from './utils/dashboardIndicesPdf';
 import { appendPdfBrandedHeader } from './utils/pdfReportHeader';
 import { captureElementForPdf } from './utils/pdfExportCapture';
+import { officialSubdistrictDisplay } from './utils/officialAdminNames';
 import {
   DASHBOARD_INDEX_ORDER,
   DASHBOARD_INDEX_LABELS,
@@ -476,8 +479,10 @@ const App: React.FC = () => {
     Banana: null,
   });
   const [predictCropAreaLoading, setPredictCropAreaLoading] = useState<boolean>(false);
-  /** YYYY-MM for predict-area — empty until user picks a month in the UI */
-  const [predictAreaMonthInput, setPredictAreaMonthInput] = useState('');
+  /** YYYY-MM for predict-area / stored district — current calendar month (Nov 2026 → 2026-11) */
+  const [predictAreaMonthInput, setPredictAreaMonthInput] = useState(
+    () => getCurrentPredictAreaMonth()
+  );
   const [maharashtraCropwise, setMaharashtraCropwise] = useState<MaharashtraCropwiseResponse | null>(null);
   const [maharashtraCropwiseLoading, setMaharashtraCropwiseLoading] = useState(false);
   const [maharashtraCropwiseError, setMaharashtraCropwiseError] = useState<string | null>(null);
@@ -687,6 +692,9 @@ const App: React.FC = () => {
 
   // State for download menu
   const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
+  const [assessmentReportLoading, setAssessmentReportLoading] = useState<boolean>(false);
+  const [drawingEnabled, setDrawingEnabled] = useState<boolean>(false);
+  const [drawnShapes, setDrawnShapes] = useState<GeoJSON.Feature[]>([]);
   const [showDashboardIndicesDownloadMenu, setShowDashboardIndicesDownloadMenu] = useState<boolean>(false);
 
   // State for split screen mode
@@ -1580,6 +1588,50 @@ const App: React.FC = () => {
     }
   };
 
+  const downloadLocationAssessmentReport = async () => {
+    setShowDownloadMenu(false);
+    const district = selectedDistrict?.trim();
+    const subdistrict = selectedSubdistrict?.trim();
+    const village = selectedVillage?.trim();
+    const drawnGeom =
+      drawnShapes.length > 0
+        ? ((drawnShapes[drawnShapes.length - 1].geometry as GeoJSON.Geometry) || null)
+        : null;
+    if (!district && !drawnGeom) {
+      alert('Select a district first (or draw a plot on the map).');
+      return;
+    }
+    if (!drawnGeom && !subdistrict && !village && selectedAnalysisFieldId == null) {
+      alert(
+        'Select a subdistrict/village/field, or turn on Draw Plot and draw a polygon, then download Assessment Report.'
+      );
+      return;
+    }
+    const cropName =
+      (Object.keys(selectedCrops || {}) as string[]).find((k) => (selectedCrops as Record<string, boolean>)[k]) ||
+      undefined;
+    setAssessmentReportLoading(true);
+    try {
+      const result = await downloadAssessmentReport({
+        district: district || '',
+        subdistrict,
+        village,
+        fieldId: drawnGeom ? null : selectedAnalysisFieldId,
+        month: predictAreaMonthInput.trim() || undefined,
+        cropName,
+        includeLandStatistics: false,
+        format: 'pdf',
+        geometry: drawnGeom,
+      });
+      console.log('Assessment report downloaded:', result.scope);
+    } catch (err: any) {
+      console.error('Assessment report failed:', err);
+      alert(err?.message || 'Failed to generate assessment report');
+    } finally {
+      setAssessmentReportLoading(false);
+    }
+  };
+
   const downloadWeatherChartPDF = async () => {
     try {
       const graphElement = document.getElementById('pest-time-series-graph');
@@ -1803,7 +1855,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Fetch districts on mount
+  // Fetch districts on mount; preload sugarcane stored-district latest for current November
   useEffect(() => {
     const loadDistricts = async () => {
       try {
@@ -1824,6 +1876,8 @@ const App: React.FC = () => {
       }
     };
     loadDistricts();
+    // Preload fast sugarcane cropwise for splash (avoid heavy districts/latest on boot)
+    void fetchMaharashtraCropwise(getCurrentPredictAreaMonth(), 'sugarcane').catch(() => {});
   }, []);
 
   // Cycle background images every 1 second
@@ -6542,9 +6596,8 @@ const App: React.FC = () => {
       setSelectedCrops(sugarcaneOnlySelection());
     }
     const currentMonth = getCurrentPredictAreaMonth();
-    if (!/^\d{4}-\d{2}$/.test(predictAreaMonthInput.trim())) {
-      setPredictAreaMonthInput(currentMonth);
-    }
+    setPredictAreaMonthInput(currentMonth);
+    setStatePageMonth(currentMonth);
     setSelectedDistrict('');
     setSelectedSubdistrict('');
     setSelectedVillage('');
@@ -6562,14 +6615,23 @@ const App: React.FC = () => {
     localStorage.removeItem('currentUser');
   };
 
-  /** Top nav back → district selection splash (stay logged in) */
+  const [districtSplashKey, setDistrictSplashKey] = useState(0);
+
+  /** Top nav → stored-districts sugarcane splash (stay logged in) */
   const handleBackToDistricts = () => {
+    const currentMonth = getCurrentPredictAreaMonth();
+    setPredictAreaMonthInput(currentMonth);
+    setStatePageMonth(currentMonth);
     setSelectedDistrict('');
     setSelectedSubdistrict('');
     setSelectedVillage('');
     setShowGraphPage(false);
     setShowAnalysisTrendsPage(false);
+    setShowStatePage(false);
+    setSplitScreenMode(false);
     setFullscreenAnalysisTrendCard(null);
+    setShowGraphFrequencyDropdown(false);
+    setDistrictSplashKey((k) => k + 1);
   };
 
   // Show login page if not authenticated
@@ -6587,8 +6649,39 @@ const App: React.FC = () => {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  const showStoredDistrictSplash =
+    !selectedDistrict &&
+    !drawingEnabled &&
+    !showGraphPage &&
+    !showAnalysisTrendsPage &&
+    !showStatePage &&
+    !splitScreenMode;
+
   return (
     <div className={`flex flex-col h-screen w-full font-sans overflow-hidden relative ${isDarkMode ? 'bg-gray-900 text-gray-100' : 'bg-[#eaf6f0] text-gray-900'} ${!isDarkMode ? 'theme-white' : ''}`}>
+      {showStoredDistrictSplash && (
+        <LoginTransitionFlash
+          key={`district-splash-${districtSplashKey}`}
+          districts={districts}
+          districtsLoading={loading && districts.length === 0}
+          month={getCurrentPredictAreaMonth()}
+          sugarcaneOnly={isSugarcaneOnlyUser(currentUser)}
+          onMonthChange={(m) => {
+            if (/^\d{4}-\d{2}$/.test(m)) {
+              setPredictAreaMonthInput(m);
+              setStatePageMonth(m);
+            }
+          }}
+          onSelectDistrict={(district) => {
+            setSelectedDistrict(district);
+            setSelectedSubdistrict('');
+            setSelectedVillage('');
+          }}
+          onComplete={() => {
+            /* map view is already visible under splash; flash just dismisses */
+          }}
+        />
+      )}
       {/* Bar Graph page - full screen when opened from header icon */}
       {false ? (
         <div className={`flex-1 flex flex-col overflow-auto ${isDarkMode ? 'bg-gray-900' : 'bg-[#eaf6f0]'}`}>
@@ -6639,7 +6732,7 @@ const App: React.FC = () => {
                 >
                   <option value="">-- Select Subdistrict --</option>
                   {subdistricts.map((s) => (
-                    <option key={s.subdistrict} value={s.subdistrict}>{s.subdistrict}</option>
+                    <option key={s.subdistrict} value={s.subdistrict}>{officialSubdistrictDisplay(s.subdistrict)}</option>
                   ))}
                 </select>
               </div>
@@ -7149,7 +7242,15 @@ const App: React.FC = () => {
         <>
       <TopNavBar
         isDarkMode={isDarkMode}
-        activeView={showStatePage ? 'state' : showGraphPage || showAnalysisTrendsPage ? 'dashboard' : 'map'}
+        activeView={
+          showStoredDistrictSplash
+            ? 'districts'
+            : showStatePage
+              ? 'state'
+              : showGraphPage || showAnalysisTrendsPage
+                ? 'dashboard'
+                : 'map'
+        }
         onMapExplore={() => {
           setShowGraphPage(false);
           setShowAnalysisTrendsPage(false);
@@ -7157,6 +7258,7 @@ const App: React.FC = () => {
           setFullscreenAnalysisTrendCard(null);
           setShowGraphFrequencyDropdown(false);
         }}
+        onDistricts={handleBackToDistricts}
         onDashboard={() => {
           setShowGraphPage(true);
           setShowAnalysisTrendsPage(false);
@@ -7179,6 +7281,24 @@ const App: React.FC = () => {
         onDownloadExcel={() => {
           setShowDownloadMenu(false);
           downloadChartExcel();
+        }}
+        onDownloadAssessmentReport={downloadLocationAssessmentReport}
+        assessmentReportLoading={assessmentReportLoading}
+        drawingEnabled={drawingEnabled}
+        drawnShapeCount={drawnShapes.length}
+        onToggleDrawing={() => {
+          setDrawingEnabled((prev) => {
+            if (prev) {
+              setDrawnShapes([]);
+              return false;
+            }
+            // Leave district splash so the map is interactive for drawing
+            setShowGraphPage(false);
+            setShowAnalysisTrendsPage(false);
+            setShowStatePage(false);
+            setSplitScreenMode(false);
+            return true;
+          });
         }}
         onBack={handleBackToDistricts}
       />
@@ -7395,7 +7515,7 @@ const App: React.FC = () => {
                 <option value="">-- Select Subdistrict --</option>
                 {getSubdistricts('left').map((subdistrict, index) => (
                   <option key={`left-subdistrict-${index}-${subdistrict.subdistrict || 'empty'}`} value={subdistrict.subdistrict}>
-                    {subdistrict.subdistrict}
+                    {officialSubdistrictDisplay(subdistrict.subdistrict)}
                   </option>
                 ))}
               </select>
@@ -10635,6 +10755,25 @@ const App: React.FC = () => {
               }}
               windDirectPayload={windDirectData}
               showWindFlowLayer={showWindFlowLayer}
+              drawingEnabled={drawingEnabled}
+              drawnShapes={drawnShapes}
+              onShapeCreated={(shape) => {
+                setDrawnShapes((prev) => [...prev, shape]);
+              }}
+              onShapeEdited={(shape) => {
+                const id = String((shape as any)?.id || (shape as any)?.properties?.id || '');
+                setDrawnShapes((prev) =>
+                  prev.map((s) => {
+                    const sid = String((s as any)?.id || (s as any)?.properties?.id || '');
+                    return sid && sid === id ? shape : s;
+                  })
+                );
+              }}
+              onShapeDeleted={(shapeId) => {
+                setDrawnShapes((prev) =>
+                  prev.filter((s) => String((s as any)?.id || (s as any)?.properties?.id || '') !== String(shapeId))
+                );
+              }}
             />
             </>
           )}
@@ -12231,7 +12370,7 @@ const App: React.FC = () => {
                     <option value="">-- Select Subdistrict --</option>
                     {getSubdistricts('right').map((subdistrict, index) => (
                       <option key={`right-subdistrict-${index}-${subdistrict.subdistrict || 'empty'}`} value={subdistrict.subdistrict}>
-                        {subdistrict.subdistrict}
+                        {officialSubdistrictDisplay(subdistrict.subdistrict)}
                       </option>
                     ))}
                   </select>

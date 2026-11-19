@@ -1,9 +1,10 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Polygon, Popup, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Polygon, Popup, Tooltip, useMap, LayersControl } from 'react-leaflet';
 import { Coordinate, Plot, LeafletCoordinate } from '../types';
 import L from 'leaflet';
 import { isFieldPlotId, resolveMapTileUrl, type WindDirectResponse } from '../services/analysisService';
 import WindFlowOverlay from './WindFlowOverlay';
+import LeafletDrawControl from './LeafletDrawControl';
 
 const GEE_CLIP_PANE = 'gee-clipped';
 
@@ -196,6 +197,12 @@ interface PlotsMapProps {
   >;
   /** Show permanent owner name labels on cadastral plots (village-data API) */
   showOwnerLabels?: boolean;
+  /** Enable Leaflet draw tools for custom farm-plot reports */
+  drawingEnabled?: boolean;
+  drawnShapes?: GeoJSON.Feature[];
+  onShapeCreated?: (shape: GeoJSON.Feature) => void;
+  onShapeEdited?: (shape: GeoJSON.Feature) => void;
+  onShapeDeleted?: (shapeId: string) => void;
 }
 
 // Helper component to fit bounds when plots change (only on initial load, not after user interaction)
@@ -234,7 +241,7 @@ const MapBounds: React.FC<{ plots: Plot[]; plotBounds?: L.LatLngBounds | null }>
     // 1. We haven't initialized yet AND user hasn't interacted, OR
     // 2. The plots have actually changed (different IDs) AND user hasn't interacted
     const shouldFitBounds = (!hasInitialized.current || plotsHash !== lastPlotsHash.current) && !userHasInteracted.current;
-    
+
     if (shouldFitBounds) {
       // If plotBounds is provided, use it (for single plot with tile overlay)
       if (plotBounds && plotBounds.isValid()) {
@@ -250,7 +257,7 @@ const MapBounds: React.FC<{ plots: Plot[]; plotBounds?: L.LatLngBounds | null }>
             bounds.extend([coord[1], coord[0]]);
           });
         });
-        
+
         if (bounds.isValid()) {
           map.fitBounds(bounds, { padding: [50, 50] });
           hasInitialized.current = true;
@@ -331,11 +338,11 @@ const MapDefaultIndia: React.FC<{
   return null;
 };
 
-const PlotsMap: React.FC<PlotsMapProps> = ({ 
-  plots, 
-  selectedPlotId, 
-  onSelectPlot, 
-  tileUrl, 
+const PlotsMap: React.FC<PlotsMapProps> = ({
+  plots,
+  selectedPlotId,
+  onSelectPlot,
+  tileUrl,
   plotBounds,
   allPlotsTileUrls = {},
   showTileLayers = true,
@@ -350,6 +357,11 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
   showWindFlowLayer = false,
   villagePlotMetaById = {},
   showOwnerLabels = false,
+  drawingEnabled = false,
+  drawnShapes = [],
+  onShapeCreated,
+  onShapeEdited,
+  onShapeDeleted,
 }) => {
   const hasFieldPolygons = plots.some(
     (p) => p.boundary && Array.isArray(p.boundary) && p.boundary.length >= 3
@@ -370,15 +382,23 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
   const selectedFieldTileUrl = clipTileToSelectedField
     ? pickSelectedPlotTileUrl(allPlotsTileUrls, tileUrl, selectedPlot, selectedPlotId)
     : null;
-  
+
   return (
     <div
       className="plots-map-root relative z-0 flex w-full min-w-0 flex-1 flex-col"
       data-plots-map-root
     >
-    <MapContainer 
-      center={INDIA_DEFAULT_CENTER} 
-      zoom={INDIA_DEFAULT_ZOOM} 
+    {drawingEnabled ? (
+      <div className="pointer-events-none absolute left-1/2 top-3 z-[2000] max-w-[min(92vw,28rem)] -translate-x-1/2 rounded-lg border border-emerald-500 bg-emerald-600 px-3 py-2 text-center text-xs font-semibold text-white shadow-lg md:text-sm">
+        Draw mode ON — single-click each corner (as many as you need). Double-click
+        <span className="font-extrabold"> away from the first point </span>
+        to finish. Do not click the first vertex until you are done.
+        {drawnShapes.length > 0 ? ` · ${drawnShapes.length} plot(s)` : ''}
+      </div>
+    ) : null}
+    <MapContainer
+      center={INDIA_DEFAULT_CENTER}
+      zoom={INDIA_DEFAULT_ZOOM}
       scrollWheelZoom={true}
       zoomControl={false}
       className="z-0 h-full w-full min-h-0 min-w-0 flex-1"
@@ -387,12 +407,32 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
       <MapLayoutFix />
       <MapDefaultIndia plotBounds={plotBounds} hasPolygons={hasFieldPolygons} />
       <EnsureGeeClipPane />
-      {/* Google Hybrid — satellite + labels */}
-      <TileLayer
-        url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-        maxZoom={20}
-        attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
-      />
+      <LayersControl position="topright">
+        <LayersControl.BaseLayer checked name="Google Hybrid">
+          <TileLayer
+            url="https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+            maxZoom={21}
+            subdomains={['0', '1', '2', '3']}
+            attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name="Google Satellite">
+          <TileLayer
+            url="https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+            maxZoom={21}
+            subdomains={['0', '1', '2', '3']}
+            attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name="Google Map">
+          <TileLayer
+            url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+            maxZoom={21}
+            subdomains={['0', '1', '2', '3']}
+            attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
+          />
+        </LayersControl.BaseLayer>
+      </LayersControl>
 
       {/* Overlay tile layers from Google Earth Engine for all plots (like Streamlit) */}
       {showTileLayers && (
@@ -530,7 +570,8 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
                     fillOpacity: 0.06,
                     weight: 3,
                     opacity: 1,
-                    interactive: !hasNumericFieldPlots,
+                    // Never steal clicks while user is drawing a custom plot
+                    interactive: !drawingEnabled && !hasNumericFieldPlots,
                   }
                 : {
                     // Clicked field: no crop fill so the analysis tile shows through; other fields keep crop color
@@ -545,11 +586,16 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
                     fillOpacity: isWaterSource ? 0.3 : (showTileInsteadOfCrop ? 0 : (useCropColor ? 0.88 : 0)),
                     weight: showTileInsteadOfCrop ? 3 : (isWaterSource ? 2 : useCropColor ? 3 : 1.5),
                     opacity: 1,
+                    interactive: !drawingEnabled,
                   }),
             }}
-            eventHandlers={{
-              click: () => onSelectPlot(plot.id),
-            }}
+            eventHandlers={
+              drawingEnabled
+                ? {}
+                : {
+                    click: () => onSelectPlot(plot.id),
+                  }
+            }
           >
             {/* Hover tooltip: survey + owner name (village-data) or field id + area */}
             {showFieldMeta && (
@@ -672,15 +718,20 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
               fillColor: '#3b82f6',
               fillOpacity: 0.3,
               weight: 2,
-              opacity: 0.8
+              opacity: 0.8,
+              interactive: !drawingEnabled,
             }}
-            eventHandlers={{
-              click: () => {
-                if (onSelectWaterSource) {
-                  onSelectWaterSource(waterSource.id, waterSource);
-                }
-              },
-            }}
+            eventHandlers={
+              drawingEnabled
+                ? {}
+                : {
+                    click: () => {
+                      if (onSelectWaterSource) {
+                        onSelectWaterSource(waterSource.id, waterSource);
+                      }
+                    },
+                  }
+            }
           >
             <Popup className="font-sans font-medium text-sm">
               <div className="text-center">
@@ -709,6 +760,16 @@ const PlotsMap: React.FC<PlotsMapProps> = ({
         (windDirectPayload.points_weather?.length ?? 0) > 0 && (
           <WindFlowOverlay payload={windDirectPayload} particleCount={480} showMarkers />
         )}
+
+      {onShapeCreated && onShapeEdited && onShapeDeleted && (
+        <LeafletDrawControl
+          drawingEnabled={drawingEnabled}
+          drawnShapes={drawnShapes}
+          onShapeCreated={onShapeCreated}
+          onShapeEdited={onShapeEdited}
+          onShapeDeleted={onShapeDeleted}
+        />
+      )}
     </MapContainer>
     </div>
   );
