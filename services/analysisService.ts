@@ -3564,20 +3564,44 @@ const weatherDailyCache = createApiCache<WeatherDailyResponse>();
 /** 1 h — daily weather series for dashboard charts. */
 const WEATHER_DAILY_TTL_MS = 60 * 60 * 1000;
 
-const fetchWeatherDailyFromNetwork = async (
+const parseWeatherDailyPayload = (
+  raw: any,
+  fallbackName: string
+): WeatherDailyResponse => {
+  const dailyRaw = Array.isArray(raw?.daily) ? raw.daily : [];
+  return {
+    level: String(raw?.level ?? ''),
+    name: String(raw?.name ?? fallbackName),
+    latitude: Number(raw?.latitude ?? 0),
+    longitude: Number(raw?.longitude ?? 0),
+    daily: dailyRaw.map((d: any) => ({
+      date: String(d?.date ?? ''),
+      temp_max: Number(d?.temp_max ?? d?.tempMax ?? 0),
+      temp_min: Number(d?.temp_min ?? d?.tempMin ?? 0),
+      rainfall: Number(d?.rainfall ?? d?.rain ?? 0),
+      wind_max: Number(d?.wind_max ?? d?.windMax ?? 0),
+    })),
+  };
+};
+
+/** One weather/daily attempt; returns null on 404 so callers can widen scope. */
+const fetchWeatherDailyOnce = async (
   district: string,
   subdistrict?: string,
   village?: string
-): Promise<WeatherDailyResponse> => {
+): Promise<WeatherDailyResponse | null> => {
   const districtQ = district.trim();
   const subdistrictQ = subdistrict?.trim() || '';
   const villageQ = village?.trim() || '';
   const query = `district=${encodeURIComponent(districtQ)}${
     subdistrictQ ? `&subdistrict=${encodeURIComponent(subdistrictQ)}` : ''
   }${villageQ ? `&village=${encodeURIComponent(villageQ)}` : ''}`;
+  const fallbackName = villageQ || subdistrictQ || districtQ;
 
-  const tryUrl = (pathPrefix: string) => `${getBaseUrl()}${pathPrefix}/weather/daily?${query}`;
-  const urlsToTry: string[] = [tryUrl(''), tryUrl('/api')];
+  const urlsToTry = [
+    `${getBaseUrl()}/weather/daily?${query}`,
+    `${getBaseUrl()}/api/weather/daily?${query}`,
+  ];
 
   let lastError: Error | null = null;
   for (const url of urlsToTry) {
@@ -3586,30 +3610,12 @@ const fetchWeatherDailyFromNetwork = async (
         method: 'GET',
         headers: { accept: 'application/json' },
       });
-
       if (!response.ok) {
         lastError = new Error(`API Error: ${response.status} ${response.statusText}. Tried: ${url}`);
         if (response.status === 404) continue;
         throw lastError;
       }
-      lastError = null;
-
-      const raw = await response.json();
-      const dailyRaw = Array.isArray(raw?.daily) ? raw.daily : [];
-      const data: WeatherDailyResponse = {
-        level: String(raw?.level ?? ''),
-        name: String(raw?.name ?? (villageQ || subdistrictQ || districtQ)),
-        latitude: Number(raw?.latitude ?? 0),
-        longitude: Number(raw?.longitude ?? 0),
-        daily: dailyRaw.map((d: any) => ({
-          date: String(d?.date ?? ''),
-          temp_max: Number(d?.temp_max ?? d?.tempMax ?? 0),
-          temp_min: Number(d?.temp_min ?? d?.tempMin ?? 0),
-          rainfall: Number(d?.rainfall ?? d?.rain ?? 0),
-          wind_max: Number(d?.wind_max ?? d?.windMax ?? 0),
-        })),
-      };
-      return data;
+      return parseWeatherDailyPayload(await response.json(), fallbackName);
     } catch (err) {
       if (err instanceof Error && err.message.includes('404')) {
         lastError = err;
@@ -3617,15 +3623,50 @@ const fetchWeatherDailyFromNetwork = async (
       }
       const msg = err instanceof Error ? err.message : String(err);
       if (msg === 'Failed to fetch' || err instanceof TypeError) {
-        lastError = new Error(`Cannot reach weather/daily API. Check: (1) Backend is running at ${getBaseUrl()}, (2) CORS allows your app origin, (3) Network/firewall. URL tried: ${url}`);
-      } else {
-        lastError = err instanceof Error ? err : new Error(String(err));
+        throw new Error(
+          `Cannot reach weather/daily API. Check backend/CORS. URL tried: ${url}`
+        );
       }
-      throw lastError;
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+  }
+  if (lastError && !lastError.message.includes('404')) throw lastError;
+  return null;
+};
+
+const fetchWeatherDailyFromNetwork = async (
+  district: string,
+  subdistrict?: string,
+  village?: string
+): Promise<WeatherDailyResponse> => {
+  // Village → subdistrict → district so renamed/missing boundaries still show weather
+  const attempts: Array<{ sub?: string; vil?: string }> = [];
+  if (village?.trim() && subdistrict?.trim()) {
+    attempts.push({ sub: subdistrict, vil: village });
+  }
+  if (subdistrict?.trim()) {
+    attempts.push({ sub: subdistrict });
+  }
+  attempts.push({});
+
+  let lastError: Error | null = null;
+  for (const scope of attempts) {
+    try {
+      const hit = await fetchWeatherDailyOnce(district, scope.sub, scope.vil);
+      if (hit) return hit;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // Non-404 failures (503, network) should not silently widen forever
+      if (!lastError.message.includes('404')) throw lastError;
     }
   }
 
-  throw lastError ?? new Error(`Weather daily API returned 404 for all paths. Backend must expose GET /weather/daily?district=... (or /api/weather/daily). Tried: ${urlsToTry.join(' ; ')}`);
+  throw (
+    lastError ??
+    new Error(
+      `Weather daily API returned 404 for district/subdistrict/village. Tried scopes for ${district}.`
+    )
+  );
 };
 
 // Fetch Daily Weather (district/subdistrict/village) — cached 1 h
