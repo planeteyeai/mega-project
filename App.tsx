@@ -23,7 +23,7 @@ import MaharashtraCropAreaCard from './components/MaharashtraCropAreaCard';
 import StateCropAreaPage from './components/StateCropAreaPage';
 import SubdistrictVillageWiseCard from './components/SubdistrictVillageWiseCard';
 import TopNavBar from './components/TopNavBar';
-import { LoginPage } from './components/LoginPage';
+import { LoginPage, type LoginResult } from './components/LoginPage';
 import {
   fetchDistricts,
   fetchSubdistricts,
@@ -109,7 +109,11 @@ import {
 import { clearAllApiCaches } from './utils/apiCache';
 import { Coordinate } from './types';
 import LoginTransitionFlash from './components/LoginTransitionFlash';
-import { clearAreaCalibrationMemory } from './utils/realisticCropArea';
+import {
+  clearAreaCalibrationMemory,
+  clearAreaDataMode,
+  setAreaDataMode,
+} from './utils/realisticCropArea';
 import { Loader2, AlertCircle, Layers, Home, LogOut, Eye, EyeOff, Sprout, Droplets, Droplet, Bug, Waves, Trees, Wind, Thermometer, LineChart as LineChartIcon, BarChart3, Download, FileText, FileSpreadsheet, ChevronLeft, ChevronRight, Columns, Maximize2, ChevronUp, ChevronDown, Move, TrendingUp, Globe2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -374,6 +378,7 @@ const App: React.FC = () => {
     try {
       localStorage.removeItem('isAuthenticated');
       localStorage.removeItem('currentUser');
+      clearAreaDataMode();
     } catch {
       /* ignore */
     }
@@ -6588,12 +6593,13 @@ const App: React.FC = () => {
   const ps: any = currentPixelData || {};
 
   // Handle login
-  const handleLogin = (user: string) => {
+  const handleLogin = ({ user, areaMode }: LoginResult) => {
     setCurrentUser(user);
     setIsAuthenticated(true);
-    // Save to localStorage before cache/calibration so fetch mode matches the user
+    // Save before cache/calibration so fetch mode matches this password's data source
     localStorage.setItem('isAuthenticated', 'true');
     localStorage.setItem('currentUser', user);
+    setAreaDataMode(areaMode);
     clearAreaCalibrationMemory();
     clearAllApiCaches();
     if (isSugarcaneOnlyUser(user)) {
@@ -6617,6 +6623,7 @@ const App: React.FC = () => {
     // Clear localStorage
     localStorage.removeItem('isAuthenticated');
     localStorage.removeItem('currentUser');
+    clearAreaDataMode();
     clearAreaCalibrationMemory();
     clearAllApiCaches();
   };

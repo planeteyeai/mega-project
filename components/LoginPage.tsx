@@ -4,8 +4,16 @@ import { Satellite, Sprout, Droplets, Activity, Bug, ArrowRight, Lock, User, Sca
 import RealEarth from './RealEarth';
 import CommonSpinner from './CommonSpinner';
 
+export type AreaDataMode = 'google' | 'raw';
+
+export interface LoginResult {
+  user: string;
+  /** google = published/Google-calibrated ha; raw = stored DB ha */
+  areaMode: AreaDataMode;
+}
+
 interface LoginPageProps {
-  onLogin: (user: string) => void;
+  onLogin: (result: LoginResult) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -41,13 +49,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       return;
     }
 
-    // Check credentials
+    // Three logins: only admin/farm@123 uses raw DB sugarcane ha
     const userKey = username.trim();
-    const validUsers: { user: string; pass: string }[] = [
-      // Admin: raw stored DB crop areas (no Google/published calibration)
-      { user: 'admin', pass: 'farm@123' },
-      // Sugarcane: published/Google-calibrated ~15 lakh ha figures
-      { user: 'sugarcane', pass: 'sugarcane@123' },
+    const validUsers: { user: string; pass: string; areaMode: AreaDataMode }[] = [
+      { user: 'admin', pass: 'farm123', areaMode: 'google' },
+      { user: 'admin', pass: 'farm@123', areaMode: 'raw' },
+      { user: 'sugarcane', pass: 'sugarcane@123', areaMode: 'google' },
     ];
     const matched = validUsers.find(
       (u) => u.user.toLowerCase() === userKey.toLowerCase() && u.pass === password
@@ -57,7 +64,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       // Simulation of connecting to satellite
       setTimeout(() => {
         setIsLoginLoading(false);
-        onLogin(matched.user);
+        onLogin({ user: matched.user, areaMode: matched.areaMode });
       }, 2500);
     } else {
       setError('Invalid username or password');

@@ -2125,8 +2125,8 @@ function mapTotalHa(areas: Record<string, number> | undefined): number {
 }
 
 /**
- * Sugarcane login: cap near published ~15 lakh ha (Google/gov shares), computed districts only.
- * Admin login: pass through raw stored DB hectares.
+ * google mode (admin/farm123 + sugarcane): cap near published ~15 lakh ha, computed districts only.
+ * raw mode (admin/farm@123 only): pass through stored DB hectares.
  */
 function calibrateMaharashtraCropwise(data: MaharashtraCropwiseResponse): MaharashtraCropwiseResponse {
   const renamed = {

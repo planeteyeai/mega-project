@@ -10,15 +10,27 @@ export const REALISTIC_STATE_RAW_HA = 4_160_993.69;
 /** Scale raw stored ~41.6 lakh ha toward published Maharashtra sugarcane (~15 lakh ha). */
 export const REALISTIC_CROP_AREA_SCALE = REALISTIC_STATE_TARGET_HA / REALISTIC_STATE_RAW_HA;
 export const SOLAPUR_HA = 117_000;
-/** Sugarcane login: published/Google-calibrated figures. */
+/** Google/published-calibrated figures (admin/farm123 + sugarcane). */
 export const AREA_CALIBRATION_ID = 'realistic_1_5m_v6';
-/** Admin login: unchanged hectares from the stored database. */
+/** Raw stored DB hectares (admin/farm@123 only). */
 export const RAW_DB_AREA_CALIBRATION_ID = 'stored_raw_db_v1';
 
-/** Sugarcane user gets Google/published calibration; Admin (and guests) see raw DB. */
+export const AREA_DATA_MODE_KEY = 'areaDataMode';
+
+/** True unless the session explicitly chose raw DB mode (admin / farm@123). */
 export function usesGoogleAreaCalibration(): boolean {
-  if (typeof localStorage === 'undefined') return false;
-  return (localStorage.getItem('currentUser') || '').trim().toLowerCase() === 'sugarcane';
+  if (typeof localStorage === 'undefined') return true;
+  return (localStorage.getItem(AREA_DATA_MODE_KEY) || 'google').trim().toLowerCase() !== 'raw';
+}
+
+export function setAreaDataMode(mode: 'google' | 'raw'): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(AREA_DATA_MODE_KEY, mode);
+}
+
+export function clearAreaDataMode(): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(AREA_DATA_MODE_KEY);
 }
 
 export function clearAreaCalibrationMemory(): void {
