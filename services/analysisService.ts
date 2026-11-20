@@ -3940,8 +3940,19 @@ export const downloadAssessmentReport = async (
   const base = getReportsBaseUrl();
 
   if (params.geometry) {
-    const asOf =
-      /^\d{4}-\d{2}$/.test(month) ? `${month}-15` : new Date().toISOString().slice(0, 10);
+    // Irrigation/report "as of" must never be a future day. For the selected YYYY-MM,
+    // use today when that month is current/future; otherwise use the month's last day.
+    const asOf = (() => {
+      const today = new Date();
+      const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      if (!/^\d{4}-\d{2}$/.test(month)) return todayIso;
+      const [ys, ms] = month.split('-');
+      const y = Number(ys);
+      const m = Number(ms);
+      const lastDay = new Date(y, m, 0).getDate();
+      const monthEnd = `${ys}-${ms}-${String(lastDay).padStart(2, '0')}`;
+      return monthEnd > todayIso ? todayIso : monthEnd;
+    })();
     const response = await fetch(`${base}/reports/farm-plot`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/pdf,application/json' },

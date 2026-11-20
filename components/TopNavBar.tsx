@@ -266,7 +266,7 @@ const TopNavBar: React.FC<TopNavBarProps> = ({
                     title={
                       drawnShapeCount > 0
                         ? 'Generate complete report for the drawn plot'
-                        : 'Village / subdistrict / farm-plot assessment report from backend'
+                        : 'Village / subdistrict / farm-plot assessment report'
                     }
                   >
                     {assessmentReportLoading ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
